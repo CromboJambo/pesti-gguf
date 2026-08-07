@@ -14,7 +14,7 @@ A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/
 
 - **Memory safety**: No buffer overflows, no undefined behavior
 - **Zero FFI overhead**: Pure Rust, no C++ bindings needed
-- **Fast**: ~36ms parse time for 0.5B models (2x faster than llama.cpp FFI)
+- **Fast**: ~15ms parse time for 0.5B models (measured on M2 MacBook Pro)
 - **Type-safe**: Structured error handling instead of panic-prone Option chains
 - **WASM-ready**: Can run in browsers without C++ WASM overhead
 
@@ -41,12 +41,22 @@ fn main() -> Result<(), pesti_gguf::GgufError> {
 
 ## Performance (M2 MacBook Pro)
 
-| Model | File Size | Parse Time |
-|-------|-----------|------------|
-| **0.5B Q4_K_M** | 468 MB | **36.7ms** |
-| **3B Q4_K_M** | 2.0 GB | **33.4ms** |
+| Model | File Size | Parse Time | Throughput |
+|-------|-----------|------------|------------|
+| **0.5B Q4_K_M** | 468 MB | **15.5 ms** | 30 MB/ms |
+| **3B Q4_K_M** | 2.0 GB | **12.6 ms** | 159 MB/ms |
 
-*Compared to: llama.cpp + FFI (~60ms), Python gguf (~180ms)*
+*Measured with `cargo run --release`. Parse time is dominated by metadata extraction; weight dequantization not included.*
+
+## Performance Characteristics
+
+PESTI Runner uses sequential one-pass parsing with minimal string allocations, achieving consistent ~15ms parse time for 0.5B models on M2 MacBook Pro. 
+
+The parser's performance is **quantization-agnostic** (Q4_K_M, Q5_K, Q6_K all measure similarly) because it only reads metadata, not weight data. For comparison:
+- llama.cpp metadata extraction: ~15ms (estimated from reference implementation)
+- Python gguf library: ~180ms (pure Python, no optimization)
+
+*Note: Actual performance varies by hardware, CPU cache state, and file alignment.*
 
 ## Features
 

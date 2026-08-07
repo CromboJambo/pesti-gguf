@@ -979,11 +979,11 @@ mod tests {
         assert_eq!(i8_val.as_i64(), Some(-128));
         assert!(i8_val.as_u64().is_none());
 
-        let f32_val = GgufKvValue::Float32(3.14);
-        assert_eq!(f32_val.as_f32(), Some(3.14));
+        let f32_val = GgufKvValue::Float32(std::f32::consts::PI);
+        assert_eq!(f32_val.as_f32(), Some(std::f32::consts::PI));
 
-        let f32_val = GgufKvValue::Float32(3.14159);
-        assert_eq!(f32_val.as_f32(), Some(3.14159f32));
+        let f32_val = GgufKvValue::Float32(std::f32::consts::PI);
+        assert_eq!(f32_val.as_f32(), Some(std::f32::consts::PI));
 
         let bool_val = GgufKvValue::Bool(true);
         assert_eq!(bool_val.as_bool(), Some(true));

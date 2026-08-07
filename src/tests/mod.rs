@@ -14,6 +14,6 @@ pub fn conformance_corpus_path(filename: &str) -> std::path::PathBuf {
     Path::new(manifest_dir)
         .parent()  // pesti-gguf/ -> /home/crombo/projects/pesti/
         .and_then(|p| p.parent())  // /home/crombo/projects/pesti/ -> /home/crombo/projects/
-        .map(|p| p.join("pesti").join("conformance-corpus").join(filename))
+        .map(|p| p.join("projects").join("pesti").join("conformance-corpus").join(filename))
         .expect("Failed to compute conformance corpus path")
 }
