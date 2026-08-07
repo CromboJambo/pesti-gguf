@@ -13,7 +13,6 @@ const GGUF_VERSION_3: u32 = 3;
 // Constants from llama.cpp reference implementation
 const GGUF_DEFAULT_ALIGNMENT: u32 = 32;
 const GGUF_MAX_KEY_LENGTH: u64 = 1024 * 1024 * 1024; // 1GB
-const GGUF_MAX_STRING_LENGTH: u64 = 1024 * 1024 * 1024; // 1GB
 const GGUF_MAX_TENSOR_NAME_LENGTH: u64 = 1024 * 1024 * 1024; // 1GB
 
 pub fn parse_gguf(path: &Path) -> Result<GgufHeader, GgufError> {
