@@ -11,7 +11,7 @@ pub fn conformance_corpus_path(filename: &str) -> std::path::PathBuf {
     
     // Navigate up to find conformance-corpus relative to crate location
     // Try common patterns: ../conformance-corpus, ../../conformance-corpus, ../../../conformance-corpus
-    let mut path = Path::new(manifest_dir);
+    let path = Path::new(manifest_dir);
     
     // Try 3 levels up (most common for standalone crates)
     if let Some(parent) = path.parent() {
