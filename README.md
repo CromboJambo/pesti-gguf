@@ -8,7 +8,7 @@
 
 ## What is this?
 
-A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs/gguf.md) model weight files (used by llama.cpp, Ollama, etc.). Written in pure Rust with just four minimal dependencies: serde, byteorder, half (for FP16 support), and thiserror (for error handling).
+A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs) model weight files (used by llama.cpp, Ollama, etc.). Written in pure Rust with just four minimal dependencies: serde, byteorder, half (for FP16 support), and thiserror (for error handling).
 
 ## Why use it?
 
