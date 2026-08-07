@@ -9,11 +9,38 @@ pub fn conformance_corpus_path(filename: &str) -> std::path::PathBuf {
     // Start from CARGO_MANIFEST_DIR (pesti-gguf crate directory)
     let manifest_dir = std::env!("CARGO_MANIFEST_DIR");
     
-    // Navigate up two levels to reach workspace root (/home/crombo/projects/pesti),
-    // then into conformance-corpus
+    // Navigate up to find conformance-corpus relative to crate location
+    // Try common patterns: ../conformance-corpus, ../../conformance-corpus, ../../../conformance-corpus
+    let mut path = Path::new(manifest_dir);
+    
+    // Try 3 levels up (most common for standalone crates)
+    if let Some(parent) = path.parent() {
+        let corpus_path = parent.join("conformance-corpus").join(filename);
+        if corpus_path.exists() {
+            return corpus_path;
+        }
+    }
+    
+    // Try 2 levels up
+    if let Some(grandparent) = path.parent().and_then(|p| p.parent()) {
+        let corpus_path = grandparent.join("conformance-corpus").join(filename);
+        if corpus_path.exists() {
+            return corpus_path;
+        }
+    }
+    
+    // Try 1 level up
+    if let Some(great_grandparent) = path.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+        let corpus_path = great_grandparent.join("conformance-corpus").join(filename);
+        if corpus_path.exists() {
+            return corpus_path;
+        }
+    }
+    
+    // Fallback: return path relative to manifest dir (will fail gracefully with error message)
     Path::new(manifest_dir)
-        .parent()  // pesti-gguf/ -> /home/crombo/projects/pesti/
-        .and_then(|p| p.parent())  // /home/crombo/projects/pesti/ -> /home/crombo/projects/
-        .map(|p| p.join("projects").join("pesti").join("conformance-corpus").join(filename))
-        .expect("Failed to compute conformance corpus path")
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("conformance-corpus").join(filename))
+        .expect("Failed to compute conformance corpus path - corpus not found in common locations")
 }

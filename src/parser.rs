@@ -616,9 +616,9 @@ mod tests_real_file {
     use super::*;
     use crate::tests::conformance_corpus_path;
 
-    // Note: This test now runs by default since the conformance corpus exists
-    // at conformance-corpus/qwen2.5-0.5b-instruct-q4_k_m.gguf (downloaded manually)
+    // Note: This test requires conformance-corpus/qwen2.5-0.5b-instruct-q4_k_m.gguf
     #[test]
+    #[ignore = "Requires conformance corpus file"]
     fn test_parse_conformance_corpus_qwen2_5() {
         let path = conformance_corpus_path("qwen2.5-0.5b-instruct-q4_k_m.gguf");
 
