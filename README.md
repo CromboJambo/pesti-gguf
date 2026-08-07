@@ -14,7 +14,6 @@ A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/
 
 - **Memory safety**: No buffer overflows, no undefined behavior
 - **Zero FFI overhead**: Pure Rust, no C++ bindings needed
-- **Fast**: ~15ms parse time for 0.5B models (measured on M2 MacBook Pro)
 - **Type-safe**: Structured error handling instead of panic-prone Option chains
 - **WASM-ready**: Can run in browsers without C++ WASM overhead
 
@@ -39,24 +38,13 @@ fn main() -> Result<(), pesti_gguf::GgufError> {
 }
 ```
 
-## Performance (M2 MacBook Pro)
-
-| Model | File Size | Parse Time | Throughput |
-|-------|-----------|------------|------------|
-| **0.5B Q4_K_M** | 468 MB | **15.5 ms** | 30 MB/ms |
-| **3B Q4_K_M** | 2.0 GB | **12.6 ms** | 159 MB/ms |
-
-*Measured with `cargo run --release`. Parse time is dominated by metadata extraction; weight dequantization not included.*
-
 ## Performance Characteristics
 
-PESTI Runner uses sequential one-pass parsing with minimal string allocations, achieving consistent ~15ms parse time for 0.5B models on M2 MacBook Pro. 
-
-The parser's performance is **quantization-agnostic** (Q4_K_M, Q5_K, Q6_K all measure similarly) because it only reads metadata, not weight data. For comparison:
+Parse time varies by hardware and model size. The parser's performance is **quantization-agnostic** because it only reads metadata, not weight data. For comparison:
 - llama.cpp metadata extraction: ~15ms (estimated from reference implementation)
 - Python gguf library: ~180ms (pure Python, no optimization)
 
-*Note: Actual performance varies by hardware, CPU cache state, and file alignment.*
+*Note: Actual performance depends on CPU cache state, file alignment, and system load.*
 
 ## Features
 
@@ -65,7 +53,8 @@ The parser's performance is **quantization-agnostic** (Q4_K_M, Q5_K, Q6_K all me
 - ✅ Comprehensive error types (InvalidMagic, UnsupportedVersion, etc.)
 - ✅ Alignment validation (`general.alignment` KV pair)
 - ✅ String length limits (1GB max per string)
-- ✅ Real-file conformance testing (Qwen2.5 0.5B & 3B models)
+- ⚠️ Real-file conformance testing (requires `conformance-corpus/` directory)
+  - Run with: `cargo test --lib -- --ignored`
 
 ## Conformance
 
@@ -75,14 +64,13 @@ Tested against real GGUF files from the **Qwen2.5 conformance corpus**:
 
 ## Comparison with llama.cpp
 
-| Feature | pesti-gguf | llama.cpp |
-|---------|------------|-----------|
-| **Language** | Pure Rust | C++ |
-| **Dependencies** | 4 crates: serde, byteorder, half, thiserror | CUDA libs, OpenBLAS |
-| **Memory Safety** | ✅ Compile-time guarantees | ⚠️ Runtime checks |
-| **FFI Required** | ❌ No | N/A (native) |
-| **WASM Ready** | ✅ Yes | ⚠️ Requires Emscripten |
-| **Parse Speed** | ~36ms (0.5B) | ~60ms (with FFI) |
+|| Feature | pesti-gguf | llama.cpp ||
+|---------|------------|-----------||
+| **Language** | Pure Rust | C++ ||
+| **Dependencies** | 4 crates: serde, byteorder, half, thiserror | CUDA libs, OpenBLAS ||
+| **Memory Safety** | ✅ Compile-time guarantees | ⚠️ Runtime checks ||
+| **FFI Required** | ❌ No | N/A (native) ||
+| **WASM Ready** | ✅ Yes | ⚠️ Requires Emscripten ||
 
 ## License
 

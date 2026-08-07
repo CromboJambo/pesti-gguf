@@ -100,10 +100,6 @@ fn parse_v2<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, GgufError> {
 fn parse_v3<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, GgufError> {
     let tensor_count = reader.read_u64::<LittleEndian>()?;
     let kv_count = reader.read_u64::<LittleEndian>()?;
-    eprintln!(
-        "DEBUG: parse_v3: tensor_count={}, kv_count={}",
-        tensor_count, kv_count
-    );
 
     // v3 practical format: same structure as v2, just different semantics
     // No extra padding after counts
@@ -173,10 +169,6 @@ fn read_kv_pair_v3<R: Read + Seek>(reader: &mut R) -> Result<GgufKvPair, GgufErr
 
     // 2. Read key name (raw bytes)
     let key_bytes = read_bytes(reader, key_len)?;
-    eprintln!(
-        "DEBUG: key_bytes = {:?}",
-        String::from_utf8_lossy(&key_bytes)
-    );
     let key = String::from_utf8(key_bytes).map_err(GgufError::Utf8)?;
 
     // 3. Read value type (u32 LE)
@@ -497,8 +489,7 @@ fn read_alignment_from_kv(kv_pairs: &[GgufKvPair]) -> Result<u64, GgufError> {
     }
 
     Ok(alignment)
-}
-
+    }
 /// Read bytes from reader with better error handling
 fn read_bytes<R>(reader: &mut R, len: usize) -> Result<Vec<u8>, GgufError>
 where

@@ -328,7 +328,7 @@ pub fn parse_and_rewrite<P: AsRef<Path>, Q: AsRef<Path>>(
     }
 
     // Copy tensor metadata (need to clone since we'll iterate twice)
-    let tensors_clone: Vec<_> = header.tensors.iter().cloned().collect();
+    let tensors_clone: Vec<_> = header.tensors.to_vec();
 
     // Read and copy tensor data
     let input_file = File::open(input_path.as_ref())?;
