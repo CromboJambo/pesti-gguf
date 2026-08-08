@@ -265,7 +265,33 @@ impl GgufWriter {
                     writer.write_u8(*v as u8)?;
                 }
             }
-            _ => {}
+            // Missing scalar types - add stub implementations
+            GgufValueType::Uint8 => {
+                if let GgufKvValue::Uint8(v) = value {
+                    writer.write_u8(*v)?;
+                }
+            }
+            GgufValueType::Uint8Array => {
+                return Err(GgufError::QuantizationNotSupported(
+                    "Uint8Array not yet supported in writer".into(),
+                ));
+            }
+            // Explicitly unhandled types - fail fast instead of silent data loss
+            GgufValueType::Bfloat16 => {
+                return Err(GgufError::QuantizationNotSupported(
+                    "Bfloat16 array element type not yet supported in writer".into(),
+                ));
+            }
+            GgufValueType::Float16 => {
+                return Err(GgufError::QuantizationNotSupported(
+                    "Float16 array element type not yet supported in writer".into(),
+                ));
+            }
+            GgufValueType::Int8Array => {
+                return Err(GgufError::QuantizationNotSupported(
+                    "Int8Array not yet supported in writer".into(),
+                ));
+            }
         }
 
         Ok(())

@@ -43,4 +43,7 @@ pub enum GgufError {
 
     #[error("array too large to fit in memory: {0} elements")]
     ArrayTooLarge(usize),
+
+    #[error("unsupported array element type: {0} (expected one of UINT8, INT8, UINT16, INT16, UINT32, INT32, UINT64, INT64, FLOAT32, BOOL, STRING, ARRAY, BFLOAT16, FLOAT16)")]
+    UnsupportedArrayElementType(u32),
 }
