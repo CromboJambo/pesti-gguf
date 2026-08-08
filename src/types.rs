@@ -139,10 +139,11 @@ impl GgufKvPair {
     }
 
     /// Compute raw byte size for a specific GGUF version.
-    fn raw_byte_size_for_version(&self, _version: u32) -> usize {
+    fn raw_byte_size_for_version(&self, version: u32) -> usize {
         let key_bytes = self.key.len();
-        // llama.cpp v3 uses u32 for key lengths (despite spec saying u64), only string values/tensor names are u64
-        let key_len_bytes = 4; 
+        // GGUF v3 uses u64 for ALL lengths (key, string values, tensor names) per commit d0cee0d
+        // "gguf.py : uint64_t on all lengths, sizes and counts"
+        let key_len_bytes = if version >= 3 { 8 } else { 4 };
         let value_bytes = match &self.value {
             GgufKvValue::Uint8(..)
             | GgufKvValue::Int8(..)
