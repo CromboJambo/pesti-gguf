@@ -176,7 +176,8 @@ impl GgufWriter {
 
     /// Calculate the byte size of the tensor metadata section.
     fn calculate_tensor_section_size(&self) -> u64 {
-        self.tensors.iter().map(|t| t.raw_byte_size() as u64).sum()
+        let format = self.wire_format();
+        self.tensors.iter().map(|t| t.raw_byte_size_for_format(&format) as u64).sum()
     }
 
     /// Align a position up to the next alignment boundary.
@@ -353,68 +354,25 @@ impl GgufWriter {
         tensor: &GgufTensorInfo,
         format: &GgufWireFormat,
     ) -> Result<(), GgufError> {
-        if format.tensor_name_width == IntWidth::U64 {
-            self.write_tensor_info_v3(writer, tensor)
-        } else {
-            self.write_tensor_info_v1v2(writer, tensor)
-        }
-    }
-
-    /// Write tensor info in v3 format (u64 name length).
-    fn write_tensor_info_v3(
-        &self,
-        writer: &mut BufWriter<File>,
-        tensor: &GgufTensorInfo,
-    ) -> Result<(), GgufError> {
-        // 1. Write name length (u64 LE)
+        // 1. Write name length (format-dependent width)
         let name_bytes = tensor.name.as_bytes();
-        writer.write_u64::<LittleEndian>(name_bytes.len() as u64)?;
+        Self::write_int(writer, name_bytes.len() as u64, format.tensor_name_width)?;
 
         // 2. Write name
         writer.write_all(name_bytes)?;
 
-        // 3. Write number of dimensions (u32 LE)
+        // 3. Write number of dimensions (u32 LE) - same across all versions
         writer.write_u32::<LittleEndian>(tensor.ndims())?;
 
-        // 4. Write shape array (n_dims * u64 LE)
+        // 4. Write shape array (n_dims * u64 LE) - same across all versions
         for dim in &tensor.shape {
             writer.write_u64::<LittleEndian>(*dim)?;
         }
 
-        // 5. Write data type (u32 LE)
+        // 5. Write data type (u32 LE) - same across all versions
         writer.write_u32::<LittleEndian>(tensor.dtype)?;
 
-        // 6. Write offset (u64 LE)
-        writer.write_u64::<LittleEndian>(tensor.offset)?;
-
-        Ok(())
-    }
-
-    /// Write tensor info in v1/v2 format (u32 name length).
-    fn write_tensor_info_v1v2(
-        &self,
-        writer: &mut BufWriter<File>,
-        tensor: &GgufTensorInfo,
-    ) -> Result<(), GgufError> {
-        // 1. Write name length (u32 LE) — v1/v2 use u32
-        let name_bytes = tensor.name.as_bytes();
-        writer.write_u32::<LittleEndian>(name_bytes.len() as u32)?;
-
-        // 2. Write name
-        writer.write_all(name_bytes)?;
-
-        // 3. Write number of dimensions (u32 LE)
-        writer.write_u32::<LittleEndian>(tensor.ndims())?;
-
-        // 4. Write shape array (n_dims * u64 LE)
-        for dim in &tensor.shape {
-            writer.write_u64::<LittleEndian>(*dim)?;
-        }
-
-        // 5. Write data type (u32 LE)
-        writer.write_u32::<LittleEndian>(tensor.dtype)?;
-
-        // 6. Write offset (u64 LE)
+        // 6. Write offset (u64 LE) - same across all versions
         writer.write_u64::<LittleEndian>(tensor.offset)?;
 
         Ok(())
