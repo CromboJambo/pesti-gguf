@@ -16,45 +16,21 @@ const GGUF_MAX_KEY_LENGTH: u64 = 1024 * 1024; // 1 MiB (was 1 GiB - unrealistic 
 const GGUF_MAX_TENSOR_NAME_LENGTH: u64 = 1024 * 1024; // 1 MiB (was 1 GiB - realistic max is ~256 bytes)
 const GGUF_MAX_COUNT: usize = 10_000_000; // 10M elements - sanity limit for KV pairs, tensors, array elements
 
-/// Read a u64 value and convert to usize with explicit bounds checking
-fn read_usize<R: Read + Seek>(reader: &mut R, what: &'static str) -> Result<usize, GgufError> {
-    let val = reader.read_u64::<LittleEndian>()?;
+/// Semantic wrapper: read string/key lengths with format-dependent width  
+fn read_length<R: Read>(reader: &mut R, width: IntWidth) -> Result<usize, GgufError> {
+    let val = read_int(reader, width)?;
+    if val == 0 || val > GGUF_MAX_KEY_LENGTH {
+        return Err(GgufError::InvalidMetadata(format!(
+            "length {} is invalid (must be > 0 and ≤ {})",
+            val, GGUF_MAX_KEY_LENGTH
+        )));
+    }
     val.try_into().map_err(|_| {
         GgufError::InvalidMetadata(format!(
-            "{} {} exceeds maximum usize ({})",
-            what,
-            val,
-            usize::MAX
+            "length {} exceeds maximum usize ({})",
+            val, usize::MAX
         ))
     })
-}
-
-/// Read a u32 value and convert to usize with explicit bounds checking
-fn read_usize_u32<R: Read + Seek>(reader: &mut R, what: &'static str) -> Result<usize, GgufError> {
-    let val = reader.read_u32::<LittleEndian>()? as usize;
-    if val > GGUF_MAX_COUNT {
-        return Err(GgufError::InvalidMetadata(format!(
-            "{} {} exceeds maximum count ({})",
-            what,
-            val,
-            GGUF_MAX_COUNT
-        )));
-    }
-    Ok(val)
-}
-
-/// Read a u64 value and convert to usize with explicit bounds checking
-fn read_usize_checked<R: Read + Seek>(reader: &mut R, what: &'static str, max: usize) -> Result<usize, GgufError> {
-    let val = reader.read_u64::<LittleEndian>()? as usize;
-    if val > max {
-        return Err(GgufError::InvalidMetadata(format!(
-            "{} {} exceeds maximum {}",
-            what,
-            val,
-            max
-        )));
-    }
-    Ok(val)
 }
 
 pub fn parse_gguf(path: &Path) -> Result<GgufHeader, GgufError> {
@@ -151,11 +127,7 @@ fn read_kv_pair<R: Read + Seek>(
     reader: &mut R,
     format: &GgufWireFormat,
 ) -> Result<GgufKvPair, GgufError> {
-    let key_len = read_int(reader, format.key_width)? as usize;
-    if key_len == 0 || key_len > GGUF_MAX_KEY_LENGTH as usize {
-        return Err(GgufError::KeyLengthOutOfRange(key_len as u64));
-    }
-
+    let key_len = read_length(reader, format.key_width)?;
     let key_bytes = read_bytes(reader, key_len)?;
     let key = String::from_utf8(key_bytes).map_err(GgufError::Utf8)?;
 
@@ -182,12 +154,12 @@ fn read_tensor_info<R: Read + Seek>(
     reader: &mut R,
     format: &GgufWireFormat,
 ) -> Result<GgufTensorInfo, GgufError> {
-    let name_len = read_int(reader, format.tensor_name_width)?;
-    if name_len == 0 || name_len > GGUF_MAX_TENSOR_NAME_LENGTH {
-        return Err(GgufError::TensorNameLengthOutOfRange(name_len));
+    let name_len = read_length(reader, format.tensor_name_width)?;
+    if name_len > GGUF_MAX_TENSOR_NAME_LENGTH as usize {
+        return Err(GgufError::TensorNameLengthOutOfRange(name_len as u64));
     }
 
-    let name_bytes = read_bytes(reader, name_len as usize)?;
+    let name_bytes = read_bytes(reader, name_len)?;
     let name = String::from_utf8(name_bytes).map_err(GgufError::Utf8)?;
 
     // n_dims, shape, dtype, offset are always u32/u64 across all versions
@@ -233,7 +205,7 @@ fn read_kv_array_element<R: Read>(
 ) -> Result<GgufKvValue, GgufError> {
     match elem_type {
         GgufValueType::String => {
-            let str_len = read_int(reader, string_width)? as usize;
+            let str_len = read_length(reader, string_width)?;
             let bytes = read_bytes(reader, str_len)?;
             Ok(GgufKvValue::String(
                 String::from_utf8(bytes).map_err(GgufError::Utf8)?,
@@ -270,7 +242,7 @@ fn read_kv_value_generic<R: Read + Seek>(
 ) -> Result<GgufKvValue, GgufError> {
     match value_type {
         GgufValueType::String => {
-            let str_len = read_int(reader, string_width)? as usize;
+            let str_len = read_length(reader, string_width)?;
             let bytes = read_bytes(reader, str_len)?;
             Ok(GgufKvValue::String(
                 String::from_utf8(bytes).map_err(GgufError::Utf8)?,
@@ -345,10 +317,14 @@ pub fn compute_data_section_start(
     // Header base: magic (4) + version (4) + tensor_count (8) + kv_count (8) = 24 bytes
     let header_base: u64 = 4 + 4 + 8 + 8;
 
-    let kv_size: u64 = match version {
-        3 => kv_pairs.iter().map(|p| p.raw_byte_size_v3() as u64).sum(),
-        _ => kv_pairs.iter().map(|p| p.raw_byte_size() as u64).sum(),
+    // Use format-aware byte size calculation
+    let format = match version {
+        3 => GgufWireFormat::V3,
+        2 => GgufWireFormat::V2,
+        _ => GgufWireFormat::V1,
     };
+    
+    let kv_size: u64 = kv_pairs.iter().map(|p| p.raw_byte_size_for_format(&format) as u64).sum();
 
     let tensor_size: u64 = tensors.iter().map(|t| t.raw_byte_size() as u64).sum();
     let mut data_section = header_base
