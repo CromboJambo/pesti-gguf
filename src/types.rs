@@ -26,6 +26,87 @@ impl GgufVersion {
             Self::V3 => 3,
         }
     }
+
+    /// Returns the wire format for this GGUF version.
+    pub fn wire_format(self) -> GgufWireFormat {
+        match self {
+            Self::V1 => GgufWireFormat::V1,
+            Self::V2 => GgufWireFormat::V2,
+            Self::V3 => GgufWireFormat::V3,
+        }
+    }
+}
+
+/// Integer width for wire-format fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntWidth {
+    /// 4-byte little-endian integer.
+    U32,
+    /// 8-byte little-endian integer.
+    U64,
+}
+
+impl IntWidth {
+    pub const fn is_u32(self) -> bool {
+        matches!(self, Self::U32)
+    }
+
+    pub const fn is_u64(self) -> bool {
+        matches!(self, Self::U64)
+    }
+}
+
+/// Describes the wire-format encoding differences between GGUF versions.
+///
+/// Instead of branching on version numbers, the parser and writer
+/// are parameterized by this struct. The version-specific code becomes
+/// trivial: select the right `GgufWireFormat` constant, then call the
+/// generic parser/writer.
+///
+/// The key insight: GGUF v1/v2/v3 differ **only** in integer widths
+/// for specific fields. The grammar (what fields exist, in what order)
+/// is the same across all versions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GgufWireFormat {
+    /// Width of tensor_count and kv_count in the file header.
+    pub header_count_width: IntWidth,
+    /// Width of KV pair key length prefix.
+    pub key_width: IntWidth,
+    /// Width of string value length prefix (top-level and in arrays).
+    pub string_width: IntWidth,
+    /// Width of array element count.
+    pub array_count_width: IntWidth,
+    /// Width of tensor info name length prefix.
+    pub tensor_name_width: IntWidth,
+}
+
+impl GgufWireFormat {
+    /// V1: u32 counts, u32 keys, u32 strings, u32 array counts, u32 tensor names.
+    pub const V1: Self = Self {
+        header_count_width: IntWidth::U32,
+        key_width: IntWidth::U32,
+        string_width: IntWidth::U32,
+        array_count_width: IntWidth::U32,
+        tensor_name_width: IntWidth::U32,
+    };
+
+    /// V2: u64 counts, u32 keys, u32 strings, u64 array counts, u32 tensor names.
+    pub const V2: Self = Self {
+        header_count_width: IntWidth::U64,
+        key_width: IntWidth::U32,
+        string_width: IntWidth::U32,
+        array_count_width: IntWidth::U64,
+        tensor_name_width: IntWidth::U32,
+    };
+
+    /// V3: u64 counts, u64 keys, u64 strings, u64 array counts, u64 tensor names.
+    pub const V3: Self = Self {
+        header_count_width: IntWidth::U64,
+        key_width: IntWidth::U64,
+        string_width: IntWidth::U64,
+        array_count_width: IntWidth::U64,
+        tensor_name_width: IntWidth::U64,
+    };
 }
 
 /// GGUF key-value value type.
