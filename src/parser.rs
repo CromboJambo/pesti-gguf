@@ -73,7 +73,12 @@ pub fn parse_gguf_reader<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, G
             kv_pairs.push(read_kv_pair(reader, &format)?);
         }
         let alignment = read_alignment_from_kv(&kv_pairs)?;
-        let data_section_start = compute_data_section_start(1, &kv_pairs, &[], Some(alignment));
+        let data_section_start = compute_data_section_start(
+            &format,
+            &kv_pairs,
+            &[],
+            Some(alignment),
+        );
         return Ok(GgufHeader {
             version: 1,
             kv_pairs,
@@ -103,7 +108,12 @@ pub fn parse_gguf_reader<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, G
     }
 
     let alignment = read_alignment_from_kv(&kv_pairs)?;
-    let data_section_start = compute_data_section_start(version, &kv_pairs, &tensors, Some(alignment));
+    let data_section_start = compute_data_section_start(
+        &format,
+        &kv_pairs,
+        &tensors,
+        Some(alignment),
+    );
 
     Ok(GgufHeader {
         version,
@@ -309,24 +319,24 @@ where
 }
 
 pub fn compute_data_section_start(
-    version: u32,
+    format: &GgufWireFormat,
     kv_pairs: &[GgufKvPair],
     tensors: &[GgufTensorInfo],
     data_alignment: Option<u64>,
 ) -> u64 {
-    // Header base: magic (4) + version (4) + tensor_count (8) + kv_count (8) = 24 bytes
-    let header_base: u64 = 4 + 4 + 8 + 8;
-
-    // Use format-aware byte size calculation
-    let format = match version {
-        3 => GgufWireFormat::V3,
-        2 => GgufWireFormat::V2,
-        _ => GgufWireFormat::V1,
-    };
+    // Header base: magic (4) + version (4) + tensor_count + kv_count (format-dependent widths)
+    let mut header_base: u64 = 4 + 4;
     
-    let kv_size: u64 = kv_pairs.iter().map(|p| p.raw_byte_size_for_format(&format) as u64).sum();
+    // Add count fields based on format
+    match format.header_count_width {
+        IntWidth::U32 => header_base += 8, // 2 x u32 counts
+        IntWidth::U64 => header_base += 16, // 2 x u64 counts
+    }
 
-    let tensor_size: u64 = tensors.iter().map(|t| t.raw_byte_size() as u64).sum();
+    // Use format-aware byte size calculation for KV pairs and tensors
+    let kv_size: u64 = kv_pairs.iter().map(|p| p.raw_byte_size_for_format(format) as u64).sum();
+    let tensor_size: u64 = tensors.iter().map(|t| t.raw_byte_size_for_format(format) as u64).sum();
+    
     let mut data_section = header_base
         .checked_add(kv_size)
         .and_then(|v| v.checked_add(tensor_size))
