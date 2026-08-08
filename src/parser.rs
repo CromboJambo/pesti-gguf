@@ -274,294 +274,121 @@ fn read_kv_pair_v1<R: Read + Seek>(reader: &mut R) -> Result<GgufKvPair, GgufErr
     })
 }
 
-/// Read KV value for v3 format (handles alignment and u64 string lengths)
-fn read_kv_value_v3<R: Read + Seek>(
-    reader: &mut R,
-    value_type: GgufValueType,
-) -> Result<GgufKvValue, GgufError> {
+/// Read a single scalar KV value (shared across all GGUF versions).
+fn read_kv_scalar<R: Read>(reader: &mut R, value_type: GgufValueType) -> Result<GgufKvValue, GgufError> {
     match value_type {
-        GgufValueType::String => {
-            // String value: u64 length per llama.cpp spec
-            let str_len = reader.read_u64::<LittleEndian>()? as usize;
-            let bytes = read_bytes(reader, str_len)?;
-            Ok(GgufKvValue::String(
-                String::from_utf8(bytes).map_err(GgufError::Utf8)?,
-            ))
-        }
-        GgufValueType::Array => {
-            // Array: read element type (u32), then count (u64), then elements
-            // GGUF v3 array format per llama.cpp:
-            // - Element type: u32 - identifies type of array elements
-            // - Count: u64 - number of elements
-            // - Elements: serialized based on element type
-            // Note: String array elements use u64 lengths (not u32) to match
-            // real GGUF files from llama.cpp
-            let elem_type_raw = reader.read_u32::<LittleEndian>()?;
-            let elem_type = GgufValueType::from_u32(elem_type_raw)
-                .ok_or(GgufError::InvalidValueType(elem_type_raw))?;
-
-            let elem_count = read_usize_checked(reader, "Array element count", GGUF_MAX_COUNT)?;
-
-            let mut elements = Vec::with_capacity(elem_count);
-            for _ in 0..elem_count {
-                // For each element, recursively read based on element type
-                match elem_type {
-                    GgufValueType::String => {
-                        // Real GGUF files use u64 for string array element lengths
-                        // While top-level strings use u32 lengths in some GGUF versions,
-                        // string elements inside arrays consistently use u64 lengths
-                        // across all llama.cpp models. This matches the wire format
-                        // specification and ensures compatibility with real model files.
-                        let str_len = reader.read_u64::<LittleEndian>()? as usize;
-                        let bytes = read_bytes(reader, str_len)?;
-                        elements.push(GgufKvValue::String(
-                            String::from_utf8(bytes).map_err(GgufError::Utf8)?,
-                        ));
-                    }
-                    GgufValueType::Uint32 => {
-                        let val = reader.read_u32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint32(val));
-                    }
-                    GgufValueType::Int8 => {
-                        let val = reader.read_i8()?;
-                        elements.push(GgufKvValue::Int8(val));
-                    }
-                    GgufValueType::Uint16 => {
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint16(val));
-                    }
-                    GgufValueType::Int16 => {
-                        let val = reader.read_i16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int16(val));
-                    }
-                    GgufValueType::Int32 => {
-                        let val = reader.read_i32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int32(val));
-                    }
-                    GgufValueType::Uint64 => {
-                        let val = reader.read_u64::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint64(val));
-                    }
-                    GgufValueType::Int64 => {
-                        let val = reader.read_i64::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int64(val));
-                    }
-                    GgufValueType::Float32 => {
-                        let val = reader.read_f32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Float32(val));
-                    }
-                    GgufValueType::Bool => {
-                        let val = reader.read_u8()? != 0;
-                        elements.push(GgufKvValue::Bool(val));
-                    }
-                    GgufValueType::Bfloat16 => {
-                        // BF16 is stored as u16, reinterpret as f32 via bit shift (not numeric conversion)
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        // 0x3F80 → 1.0 (bit pattern), not 16256.0 (numeric conversion)
-                        elements.push(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)));
-                    }
-                    GgufValueType::Float16 => {
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Float16(val));
-                    }
-                    GgufValueType::Uint8 => {
-                        let val = reader.read_u8()?;
-                        elements.push(GgufKvValue::Uint8(val));
-                    }
-                    GgufValueType::Int8Array | GgufValueType::Uint8Array => {
-                        // Nested arrays - read as array of arrays (complex, but possible)
-                        return Err(GgufError::UnsupportedArrayElementType(elem_type_raw));
-                    }
-                    _ => {
-                        // Unknown/unrecognized type - fail explicitly
-                        return Err(GgufError::UnsupportedArrayElementType(elem_type_raw));
-                    }
-                }
-            }
-
-            Ok(GgufKvValue::Array(elements))
-        }
-        GgufValueType::Int8 => {
-            let val = reader.read_i8()?;
-            Ok(GgufKvValue::Int8(val))
-        }
-        GgufValueType::Uint16 => {
+        GgufValueType::Int8 => Ok(GgufKvValue::Int8(reader.read_i8()?)),
+        GgufValueType::Uint16 => Ok(GgufKvValue::Uint16(reader.read_u16::<LittleEndian>()?)),
+        GgufValueType::Int16 => Ok(GgufKvValue::Int16(reader.read_i16::<LittleEndian>()?)),
+        GgufValueType::Uint32 => Ok(GgufKvValue::Uint32(reader.read_u32::<LittleEndian>()?)),
+        GgufValueType::Int32 => Ok(GgufKvValue::Int32(reader.read_i32::<LittleEndian>()?)),
+        GgufValueType::Uint64 => Ok(GgufKvValue::Uint64(reader.read_u64::<LittleEndian>()?)),
+        GgufValueType::Int64 => Ok(GgufKvValue::Int64(reader.read_i64::<LittleEndian>()?)),
+        GgufValueType::Float32 => Ok(GgufKvValue::Float32(reader.read_f32::<LittleEndian>()?)),
+        GgufValueType::Float64 => Ok(GgufKvValue::Float64(reader.read_f64::<LittleEndian>()?)),
+        GgufValueType::Bool => Ok(GgufKvValue::Bool(reader.read_u8()? != 0)),
+        GgufValueType::Bfloat16 => {
             let val = reader.read_u16::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint16(val))
+            Ok(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)))
         }
-        GgufValueType::Int16 => {
-            let val = reader.read_i16::<LittleEndian>()?;
-            Ok(GgufKvValue::Int16(val))
-        }
-        GgufValueType::Uint32 => {
-            let val = reader.read_u32::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint32(val))
-        }
-        GgufValueType::Int32 => {
-            let val = reader.read_i32::<LittleEndian>()?;
-            Ok(GgufKvValue::Int32(val))
-        }
-        GgufValueType::Uint64 => {
-            let val = reader.read_u64::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint64(val))
-        }
-        GgufValueType::Int64 => {
-            let val = reader.read_i64::<LittleEndian>()?;
-            Ok(GgufKvValue::Int64(val))
-        }
-        GgufValueType::Float32 => {
-            let val = reader.read_f32::<LittleEndian>()?;
-            Ok(GgufKvValue::Float32(val))
-        }
-        GgufValueType::Float64 => {
-            let val = reader.read_f64::<LittleEndian>()?;
-            Ok(GgufKvValue::Float64(val))
-        }
-        GgufValueType::Bool => {
-            let val = reader.read_u8()? != 0;
-            Ok(GgufKvValue::Bool(val))
-        }
+        GgufValueType::Float16 => Ok(GgufKvValue::Float16(reader.read_u16::<LittleEndian>()?)),
+        GgufValueType::Uint8 => Ok(GgufKvValue::Uint8(reader.read_u8()?)),
         _ => Err(GgufError::InvalidValueType(value_type as u32)),
     }
 }
 
-/// Read KV value for v2 format (strings use u32 lengths)
-fn read_kv_value_v2<R: Read + Seek>(
+/// Read a single array element (shared across all GGUF versions).
+fn read_kv_array_element<R: Read>(
+    reader: &mut R,
+    elem_type: GgufValueType,
+    elem_type_raw: u32,
+    string_len_size: usize,
+) -> Result<GgufKvValue, GgufError> {
+    match elem_type {
+        GgufValueType::String => {
+            let str_len = if string_len_size == 8 {
+                reader.read_u64::<LittleEndian>()? as usize
+            } else {
+                reader.read_u32::<LittleEndian>()? as usize
+            };
+            let bytes = read_bytes(reader, str_len)?;
+            Ok(GgufKvValue::String(
+                String::from_utf8(bytes).map_err(GgufError::Utf8)?,
+            ))
+        }
+        GgufValueType::Uint32 => Ok(GgufKvValue::Uint32(reader.read_u32::<LittleEndian>()?)),
+        GgufValueType::Int8 => Ok(GgufKvValue::Int8(reader.read_i8()?)),
+        GgufValueType::Uint16 => Ok(GgufKvValue::Uint16(reader.read_u16::<LittleEndian>()?)),
+        GgufValueType::Int16 => Ok(GgufKvValue::Int16(reader.read_i16::<LittleEndian>()?)),
+        GgufValueType::Int32 => Ok(GgufKvValue::Int32(reader.read_i32::<LittleEndian>()?)),
+        GgufValueType::Uint64 => Ok(GgufKvValue::Uint64(reader.read_u64::<LittleEndian>()?)),
+        GgufValueType::Int64 => Ok(GgufKvValue::Int64(reader.read_i64::<LittleEndian>()?)),
+        GgufValueType::Float32 => Ok(GgufKvValue::Float32(reader.read_f32::<LittleEndian>()?)),
+        GgufValueType::Bool => Ok(GgufKvValue::Bool(reader.read_u8()? != 0)),
+        GgufValueType::Bfloat16 => {
+            let val = reader.read_u16::<LittleEndian>()?;
+            Ok(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)))
+        }
+        GgufValueType::Float16 => Ok(GgufKvValue::Float16(reader.read_u16::<LittleEndian>()?)),
+        GgufValueType::Uint8 => Ok(GgufKvValue::Uint8(reader.read_u8()?)),
+        GgufValueType::Int8Array | GgufValueType::Uint8Array => {
+            Err(GgufError::UnsupportedArrayElementType(elem_type_raw))
+        }
+        _ => Err(GgufError::UnsupportedArrayElementType(elem_type_raw)),
+    }
+}
+
+/// Generic KV value reader — parameterized by string/array length prefix sizes.
+fn read_kv_value_generic<R: Read + Seek>(
     reader: &mut R,
     value_type: GgufValueType,
+    string_len_size: usize,
+    array_count_size: usize,
 ) -> Result<GgufKvValue, GgufError> {
     match value_type {
         GgufValueType::String => {
-            let str_len = reader.read_u32::<LittleEndian>()? as usize;
+            let str_len = if string_len_size == 8 {
+                reader.read_u64::<LittleEndian>()? as usize
+            } else {
+                reader.read_u32::<LittleEndian>()? as usize
+            };
             let bytes = read_bytes(reader, str_len)?;
             Ok(GgufKvValue::String(
                 String::from_utf8(bytes).map_err(GgufError::Utf8)?,
             ))
         }
         GgufValueType::Array => {
-            // GGUF wire format (all versions): element type first, then count
             let elem_type_raw = reader.read_u32::<LittleEndian>()?;
             let elem_type = GgufValueType::from_u32(elem_type_raw)
                 .ok_or(GgufError::InvalidValueType(elem_type_raw))?;
-
-            let elem_count = reader.read_u64::<LittleEndian>()? as usize;
+            let elem_count = if array_count_size == 8 {
+                read_usize_checked(reader, "Array element count", GGUF_MAX_COUNT)?
+            } else {
+                reader.read_u32::<LittleEndian>()? as usize
+            };
             let mut elements = Vec::with_capacity(elem_count);
-            
             for _ in 0..elem_count {
-                // For each element, recursively read based on element type
-                match elem_type {
-                    GgufValueType::String => {
-                        // String elements in v2 use u32 lengths
-                        let str_len = reader.read_u32::<LittleEndian>()? as usize;
-                        let bytes = read_bytes(reader, str_len)?;
-                        elements.push(GgufKvValue::String(
-                            String::from_utf8(bytes).map_err(GgufError::Utf8)?,
-                        ));
-                    }
-                    GgufValueType::Uint32 => {
-                        let val = reader.read_u32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint32(val));
-                    }
-                    GgufValueType::Int8 => {
-                        let val = reader.read_i8()?;
-                        elements.push(GgufKvValue::Int8(val));
-                    }
-                    GgufValueType::Uint16 => {
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint16(val));
-                    }
-                    GgufValueType::Int16 => {
-                        let val = reader.read_i16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int16(val));
-                    }
-                    GgufValueType::Int32 => {
-                        let val = reader.read_i32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int32(val));
-                    }
-                    GgufValueType::Uint64 => {
-                        let val = reader.read_u64::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint64(val));
-                    }
-                    GgufValueType::Int64 => {
-                        let val = reader.read_i64::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int64(val));
-                    }
-                    GgufValueType::Float32 => {
-                        let val = reader.read_f32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Float32(val));
-                    }
-                    GgufValueType::Bool => {
-                        let val = reader.read_u8()? != 0;
-                        elements.push(GgufKvValue::Bool(val));
-                    }
-                    GgufValueType::Bfloat16 => {
-                        // BF16 is stored as u16, reinterpret as f32 via bit shift (not numeric conversion)
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        // 0x3F80 → 1.0 (bit pattern), not 16256.0 (numeric conversion)
-                        elements.push(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)));
-                    }
-                    GgufValueType::Float16 => {
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Float16(val));
-                    }
-                    GgufValueType::Uint8 => {
-                        let val = reader.read_u8()?;
-                        elements.push(GgufKvValue::Uint8(val));
-                    }
-                    GgufValueType::Int8Array | GgufValueType::Uint8Array => {
-                        // Nested arrays - read as array of arrays (complex, but possible)
-                        return Err(GgufError::UnsupportedArrayElementType(elem_type_raw));
-                    }
-                    _ => {
-                        // Unknown/unrecognized type - fail explicitly
-                        return Err(GgufError::UnsupportedArrayElementType(elem_type_raw));
-                    }
-                }
+                elements.push(read_kv_array_element(reader, elem_type, elem_type_raw, string_len_size)?);
             }
             Ok(GgufKvValue::Array(elements))
         }
-        GgufValueType::Int8 => {
-            let val = reader.read_i8()?;
-            Ok(GgufKvValue::Int8(val))
-        }
-        GgufValueType::Uint16 => {
-            let val = reader.read_u16::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint16(val))
-        }
-        GgufValueType::Int16 => {
-            let val = reader.read_i16::<LittleEndian>()?;
-            Ok(GgufKvValue::Int16(val))
-        }
-        GgufValueType::Uint32 => {
-            let val = reader.read_u32::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint32(val))
-        }
-        GgufValueType::Int32 => {
-            let val = reader.read_i32::<LittleEndian>()?;
-            Ok(GgufKvValue::Int32(val))
-        }
-        GgufValueType::Uint64 => {
-            let val = reader.read_u64::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint64(val))
-        }
-        GgufValueType::Int64 => {
-            let val = reader.read_i64::<LittleEndian>()?;
-            Ok(GgufKvValue::Int64(val))
-        }
-        GgufValueType::Float32 => {
-            let val = reader.read_f32::<LittleEndian>()?;
-            Ok(GgufKvValue::Float32(val))
-        }
-        GgufValueType::Float64 => {
-            let val = reader.read_f64::<LittleEndian>()?;
-            Ok(GgufKvValue::Float64(val))
-        }
-        GgufValueType::Bool => {
-            let val = reader.read_u8()? != 0;
-            Ok(GgufKvValue::Bool(val))
-        }
-        _ => Err(GgufError::InvalidValueType(value_type as u32)),
+        _ => read_kv_scalar(reader, value_type),
     }
+}
+
+/// Read KV value for v3 format (u64 string lengths, u64 array counts).
+fn read_kv_value_v3<R: Read + Seek>(reader: &mut R, value_type: GgufValueType) -> Result<GgufKvValue, GgufError> {
+    read_kv_value_generic(reader, value_type, 8, 8)
+}
+
+/// Read KV value for v2 format (u32 string lengths, u64 array counts).
+fn read_kv_value_v2<R: Read + Seek>(reader: &mut R, value_type: GgufValueType) -> Result<GgufKvValue, GgufError> {
+    read_kv_value_generic(reader, value_type, 4, 8)
+}
+
+/// Read KV value for v1 format (u32 string lengths, u32 array counts).
+fn read_kv_value_v1<R: Read + Seek>(reader: &mut R, value_type: GgufValueType) -> Result<GgufKvValue, GgufError> {
+    read_kv_value_generic(reader, value_type, 4, 4)
 }
 
 /// Read tensor info for v3 practical format - uses u64 for name length
@@ -844,146 +671,5 @@ mod tests_real_file {
         // Test that numeric conversion would give wrong result for 0x3F80
         let wrong_conversion = bf16_bits as f32;
         assert_eq!(wrong_conversion, 16256.0, "Numeric conversion of 0x3F80 gives 16256.0 (WRONG)");
-    }
-}
-/// Read KV value for v1 format (strings use u32 lengths, array counts use u32)
-fn read_kv_value_v1<R: Read + Seek>(
-    reader: &mut R,
-    value_type: GgufValueType,
-) -> Result<GgufKvValue, GgufError> {
-    match value_type {
-        GgufValueType::String => {
-            // v1 uses u32 string lengths
-            let str_len = reader.read_u32::<LittleEndian>()? as usize;
-            let bytes = read_bytes(reader, str_len)?;
-            Ok(GgufKvValue::String(
-                String::from_utf8(bytes).map_err(GgufError::Utf8)?,
-            ))
-        }
-        GgufValueType::Array => {
-            // GGUF wire format (all versions): element type first, then count
-            let elem_type_raw = reader.read_u32::<LittleEndian>()?;
-            let elem_type = GgufValueType::from_u32(elem_type_raw)
-                .ok_or(GgufError::InvalidValueType(elem_type_raw))?;
-
-            // v1 uses u32 for array element count
-            let elem_count = reader.read_u32::<LittleEndian>()? as usize;
-            let mut elements = Vec::with_capacity(elem_count);
-            
-            for _ in 0..elem_count {
-                // For each element, recursively read based on element type
-                match elem_type {
-                    GgufValueType::String => {
-                        // String elements in v1 use u32 lengths
-                        let str_len = reader.read_u32::<LittleEndian>()? as usize;
-                        let bytes = read_bytes(reader, str_len)?;
-                        elements.push(GgufKvValue::String(
-                            String::from_utf8(bytes).map_err(GgufError::Utf8)?,
-                        ));
-                    }
-                    GgufValueType::Uint32 => {
-                        let val = reader.read_u32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint32(val));
-                    }
-                    GgufValueType::Int8 => {
-                        let val = reader.read_i8()?;
-                        elements.push(GgufKvValue::Int8(val));
-                    }
-                    GgufValueType::Uint16 => {
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint16(val));
-                    }
-                    GgufValueType::Int16 => {
-                        let val = reader.read_i16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int16(val));
-                    }
-                    GgufValueType::Int32 => {
-                        let val = reader.read_i32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int32(val));
-                    }
-                    GgufValueType::Uint64 => {
-                        let val = reader.read_u64::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Uint64(val));
-                    }
-                    GgufValueType::Int64 => {
-                        let val = reader.read_i64::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Int64(val));
-                    }
-                    GgufValueType::Float32 => {
-                        let val = reader.read_f32::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Float32(val));
-                    }
-                    GgufValueType::Bool => {
-                        let val = reader.read_u8()? != 0;
-                        elements.push(GgufKvValue::Bool(val));
-                    }
-                    GgufValueType::Bfloat16 => {
-                        // BF16 is stored as u16, reinterpret as f32 via bit shift (not numeric conversion)
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        // 0x3F80 → 1.0 (bit pattern), not 16256.0 (numeric conversion)
-                        elements.push(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)));
-                    }
-                    GgufValueType::Float16 => {
-                        let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Float16(val));
-                    }
-                    GgufValueType::Uint8 => {
-                        let val = reader.read_u8()?;
-                        elements.push(GgufKvValue::Uint8(val));
-                    }
-                    GgufValueType::Int8Array | GgufValueType::Uint8Array => {
-                        // Nested arrays - read as array of arrays (complex, but possible)
-                        return Err(GgufError::UnsupportedArrayElementType(elem_type_raw));
-                    }
-                    _ => {
-                        // Unknown/unrecognized type - fail explicitly
-                        return Err(GgufError::UnsupportedArrayElementType(elem_type_raw));
-                    }
-                }
-            }
-            Ok(GgufKvValue::Array(elements))
-        }
-        // For scalar types, v1 and v2+ are the same
-        GgufValueType::Int8 => {
-            let val = reader.read_i8()?;
-            Ok(GgufKvValue::Int8(val))
-        }
-        GgufValueType::Uint16 => {
-            let val = reader.read_u16::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint16(val))
-        }
-        GgufValueType::Int16 => {
-            let val = reader.read_i16::<LittleEndian>()?;
-            Ok(GgufKvValue::Int16(val))
-        }
-        GgufValueType::Uint32 => {
-            let val = reader.read_u32::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint32(val))
-        }
-        GgufValueType::Int32 => {
-            let val = reader.read_i32::<LittleEndian>()?;
-            Ok(GgufKvValue::Int32(val))
-        }
-        GgufValueType::Uint64 => {
-            let val = reader.read_u64::<LittleEndian>()?;
-            Ok(GgufKvValue::Uint64(val))
-        }
-        GgufValueType::Int64 => {
-            let val = reader.read_i64::<LittleEndian>()?;
-            Ok(GgufKvValue::Int64(val))
-        }
-        GgufValueType::Float32 => {
-            let val = reader.read_f32::<LittleEndian>()?;
-            Ok(GgufKvValue::Float32(val))
-        }
-        GgufValueType::Float64 => {
-            let val = reader.read_f64::<LittleEndian>()?;
-            Ok(GgufKvValue::Float64(val))
-        }
-        GgufValueType::Bool => {
-            let val = reader.read_u8()? != 0;
-            Ok(GgufKvValue::Bool(val))
-        }
-        _ => Err(GgufError::InvalidValueType(value_type as u32)),
     }
 }
