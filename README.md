@@ -76,10 +76,6 @@ Tested against real GGUF files from the **Qwen2.5 conformance corpus**:
 
 Dual-licensed: **AGPL-3.0** or **Apache-2.0**
 
-## Contributing
-
-Pull requests welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
 ---
 
 *Built by [@crombojambo](https://github.com/crombojambo) for the Rust LLM ecosystem*
