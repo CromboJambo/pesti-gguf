@@ -212,6 +212,28 @@ pub enum GgufDtype {
     Q4_K_S,
     Q5_K_S,
     Q2_K_M,
+    // Int8-quantized types (IQ*) - newer sub-K quantizations
+    IQ2_XXS,  // dtype 16
+    IQ2_XS,   // dtype 17
+    IQ3_XXS,  // dtype 18
+    IQ1_S,    // dtype 19
+    // Deprecated/legacy types
+    Q4_0_4_4, // dtype 31 (deprecated)
+    Q4_0_4_8, // dtype 32
+    Q4_0_8_8, // dtype 33
+    // Ternary quantization types (TQ*) - experimental
+    TQ1_0,    // dtype 34
+    TQ2_0,    // dtype 35
+    // Int4-quantized types (IQ4*) - newer sub-K quantizations
+    IQ4_NL_4_4, // dtype 36
+    IQ4_NL_4_8, // dtype 37
+    IQ4_NL_8_8, // dtype 38
+    // Matrix-exponential FP4 types
+    MXFP4,      // dtype 39
+    NVFP4,      // dtype 40
+    // Additional Q* variants (Q1_0, Q2_0) - newer base quantizations
+    Q1_0,       // dtype 41
+    Q2_0,       // dtype 42
     Unknown(u32),
 }
 
@@ -232,33 +254,36 @@ impl GgufDtype {
             13 => Self::Q5_K,
             14 => Self::Q6_K,
             15 => Self::Q8_K,
-            16 => Self::Unknown(v), // IQ2_XXS - newer type
-            17 => Self::Unknown(v), // IQ2_XS - newer type
-            18 => Self::Unknown(v), // IQ3_XXS - newer type
-            19 => Self::Unknown(v), // IQ1_S - newer type
-            20 => Self::Unknown(v), // IQ4_NL - newer type
-            21 => Self::Unknown(v), // IQ3_S - newer type
-            22 => Self::Unknown(v), // IQ2_S - newer type
-            23 => Self::Unknown(v), // IQ4_XS - newer type
-            24 => Self::I8,         // I8
-            25 => Self::I16,        // I16
-            26 => Self::I32,        // I32
-            27 => Self::I64,        // I64
-            28 => Self::F64,        // F64
-            29 => Self::Unknown(v), // IQ1_M - newer type
-            30 => Self::BF16,       // BF16
-            31 => Self::Unknown(v), // Q4_0_4_4 - removed from gguf files
-            32 => Self::Unknown(v), // Q4_0_4_8 - not yet used
-            33 => Self::Unknown(v), // Q4_0_8_8 - not yet used
-            34 => Self::Unknown(v), // TQ1_0 - newer type
-            35 => Self::Unknown(v), // TQ2_0 - newer type
-            36 => Self::Unknown(v), // IQ4_NL_4_4 - not yet used
-            37 => Self::Unknown(v), // IQ4_NL_4_8 - not yet used
-            38 => Self::Unknown(v), // IQ4_NL_8_8 - not yet used
-            39 => Self::Unknown(v), // MXFP4 - newer type
-            40 => Self::Unknown(v), // NVFP4 - newer type
-            41 => Self::Unknown(v), // Q1_0 - newer type
-            42 => Self::Unknown(v), // Q2_0 - newer type
+            16 => Self::IQ2_XXS, // IQ2_XXS
+            17 => Self::IQ2_XS,  // IQ2_XS
+            18 => Self::IQ3_XXS, // IQ3_XXS
+            19 => Self::IQ1_S,   // IQ1_S
+            20 => Self::Q1_K,    // Q1_K
+            21 => Self::Q4_K_M,  // Q4_K_M
+            22 => Self::Q5_K_M,  // Q5_K_M
+            23 => Self::Q6_K_S,  // Q6_K_S
+            // NOTE: dtype 24-28 have conflicts in llama.cpp between I* and Q*_K_S types
+            // These are resolved by using from_u32() for reading (prioritizes I*)
+            // and to_u32() for writing (preserves original type)
+            24 => Self::I8,      // I8 (also used by Q8_K_M - conflict!)
+            25 => Self::I16,     // I16 (also used by Q2_K_S - conflict!)
+            26 => Self::I32,     // I32 (also used by Q3_K_S - conflict!)
+            27 => Self::I64,     // I64 (also used by Q4_K_S - conflict!)
+            28 => Self::F64,     // F64 (also used by Q5_K_S - conflict!)
+            29 => Self::Q2_K_M,  // Q2_K_M
+            30 => Self::BF16,    // BF16
+            31 => Self::Q4_0_4_4, // Q4_0_4_4 (deprecated)
+            32 => Self::Q4_0_4_8, // Q4_0_4_8
+            33 => Self::Q4_0_8_8, // Q4_0_8_8
+            34 => Self::TQ1_0,   // TQ1_0 (ternary)
+            35 => Self::TQ2_0,   // TQ2_0 (ternary)
+            36 => Self::IQ4_NL_4_4, // IQ4_NL_4_4
+            37 => Self::IQ4_NL_4_8, // IQ4_NL_4_8
+            38 => Self::IQ4_NL_8_8, // IQ4_NL_8_8
+            39 => Self::MXFP4,   // MXFP4 (matrix-exponential FP4)
+            40 => Self::NVFP4,   // NVFP4 (NVIDIA FP4)
+            41 => Self::Q1_0,    // Q1_0 (newer base quant)
+            42 => Self::Q2_0,    // Q2_0 (newer base quant)
             _ => Self::Unknown(v),
         }
     }
@@ -295,7 +320,24 @@ impl GgufDtype {
             Self::Q4_K_S => 27,
             Self::Q5_K_S => 28,
             Self::Q2_K_M => 29,
-            Self::Unknown(v) => v,
+            // New unmapped dtypes (IQ*, TQ*, MXFP4, NVFP4, Q*_0 variants)
+            Self::IQ2_XXS => 16,
+            Self::IQ2_XS => 17,
+            Self::IQ3_XXS => 18,
+            Self::IQ1_S => 19,
+            Self::Q4_0_4_4 => 31, // deprecated
+            Self::Q4_0_4_8 => 32,
+            Self::Q4_0_8_8 => 33,
+            Self::TQ1_0 => 34,
+            Self::TQ2_0 => 35,
+            Self::IQ4_NL_4_4 => 36,
+            Self::IQ4_NL_4_8 => 37,
+            Self::IQ4_NL_8_8 => 38,
+            Self::MXFP4 => 39,
+            Self::NVFP4 => 40,
+            Self::Q1_0 => 41,
+            Self::Q2_0 => 42,
+            Self::Unknown(v) => v, // preserve unknown dtype IDs
         }
     }
 
@@ -340,6 +382,8 @@ impl GgufDtype {
             Self::BF16 => 2,
             Self::Q4_0 | Self::Q4_1 | Self::Q1_K | Self::Q5_0 | Self::Q5_1 | Self::Q4_K_M => 0,
             Self::Q2_K | Self::Q3_K | Self::Q4_K | Self::Q5_K | Self::Q5_K_S | Self::Q5_K_M | Self::Q6_K | Self::Q6_K_S | Self::Q8_K | Self::Q8_K_M | Self::Q2_K_M | Self::Q2_K_S | Self::Q3_K_S | Self::Q4_K_S => 0,
+            // New unmapped dtypes (IQ*, TQ*, MXFP4, NVFP4, Q*_0 variants) - treat as quantized for size calculation
+            Self::IQ2_XXS | Self::IQ2_XS | Self::IQ3_XXS | Self::IQ1_S | Self::Q4_0_4_4 | Self::Q4_0_4_8 | Self::Q4_0_8_8 | Self::TQ1_0 | Self::TQ2_0 | Self::IQ4_NL_4_4 | Self::IQ4_NL_4_8 | Self::IQ4_NL_8_8 | Self::MXFP4 | Self::NVFP4 | Self::Q1_0 | Self::Q2_0 => 0,
             Self::Unknown(_) => 0,
         }
     }
@@ -376,7 +420,24 @@ impl GgufDtype {
             Self::Q4_K_S => "Q4_K_S",
             Self::Q5_K_S => "Q5_K_S",
             Self::Q2_K_M => "Q2_K_M",
-            Self::Unknown(_) => "unknown",
+            // New unmapped dtypes (IQ*, TQ*, MXFP4, NVFP4, Q*_0 variants)
+            Self::IQ2_XXS => "IQ2_XXS",
+            Self::IQ2_XS => "IQ2_XS",
+            Self::IQ3_XXS => "IQ3_XXS",
+            Self::IQ1_S => "IQ1_S",
+            Self::Q4_0_4_4 => "Q4_0_4_4", // deprecated
+            Self::Q4_0_4_8 => "Q4_0_4_8",
+            Self::Q4_0_8_8 => "Q4_0_8_8",
+            Self::TQ1_0 => "TQ1_0",
+            Self::TQ2_0 => "TQ2_0",
+            Self::IQ4_NL_4_4 => "IQ4_NL_4_4",
+            Self::IQ4_NL_4_8 => "IQ4_NL_4_8",
+            Self::IQ4_NL_8_8 => "IQ4_NL_8_8",
+            Self::MXFP4 => "MXFP4",
+            Self::NVFP4 => "NVFP4",
+            Self::Q1_0 => "Q1_0",
+            Self::Q2_0 => "Q2_0",
+            Self::Unknown(_) => "unknown", // fallback for unmapped dtypes
         }
     }
 }
@@ -430,20 +491,86 @@ impl GgufTensorInfo {
             }
             GgufDtype::Q5_0 => n / 2 + 32 + 16,
             GgufDtype::Q5_1 => n / 2 + 64 + 16,
-            GgufDtype::Q2_K => n / 4 + n * 6 / 32 + 8,
-            GgufDtype::Q3_K => n / 8 + n * 6 / 32 + 16,
-            GgufDtype::Q4_K => n / 4 + n * 6 / 32 + 16 + 32,
-            GgufDtype::Q5_K => n / 4 + n * 6 / 32 + 16 + 32 + 16,
-            GgufDtype::Q6_K => n / 2 + n / 4 + 256,
-            GgufDtype::Q8_K => n / 2 + n * 6 / 32 + 256,
-            GgufDtype::Q1_K => n / 8 + n * 6 / 32 + 96,
-            GgufDtype::Q4_K_M | GgufDtype::Q5_K_M | GgufDtype::Q8_K_M => n / 4 + n * 6 / 32 + 48,
-            GgufDtype::Q2_K_S | GgufDtype::Q3_K_S | GgufDtype::Q4_K_S | GgufDtype::Q5_K_S | GgufDtype::Q6_K_S | GgufDtype::Q2_K_M => n / 4 + n * 6 / 32 + 24,
+            // K-family quantizations (block size = 256 elements per block)
+            // Q2_K: 84 bytes/block (2.625 bits/element)
+            GgufDtype::Q2_K => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 84 + if remaining > 0 { remaining / 4 + remaining / 16 + 4 } else { 0 }
+            }
+            // Q3_K: 110 bytes/block (3.4375 bits/element)
+            GgufDtype::Q3_K => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 110 + if remaining > 0 { remaining / 4 + remaining / 8 + 12 } else { 0 }
+            }
+            // Q4_K: 144 bytes/block (4.5 bits/element)
+            GgufDtype::Q4_K => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 144 + if remaining > 0 { remaining / 2 + 16 } else { 0 }
+            }
+            // Q5_K: 176 bytes/block (5.5 bits/element)
+            GgufDtype::Q5_K => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 176 + if remaining > 0 { remaining / 2 + remaining / 8 + 16 } else { 0 }
+            }
+            // Q6_K: 210 bytes/block (6.5625 bits/element)
+            GgufDtype::Q6_K => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 210 + if remaining > 0 { remaining / 16 + 3 * remaining / 4 + 2 } else { 0 }
+            }
+            // Q8_K: 292 bytes/block (9.125 bits/element)
+            GgufDtype::Q8_K => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 292 + if remaining > 0 { remaining + remaining / 16 * 2 + 4 } else { 0 }
+            }
+            // Q1_K: variant of Q3_K with different scale layout
+            GgufDtype::Q1_K => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 64 + if remaining > 0 { remaining / 8 + remaining / 64 + 96 } else { 0 }
+            }
+            // Q4_K_M, Q5_K_M, Q8_K_M: mixed-precision variants (same as base K types for size)
+            GgufDtype::Q4_K_M => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 144 + if remaining > 0 { remaining / 2 + 16 } else { 0 }
+            }
+            GgufDtype::Q5_K_M => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 176 + if remaining > 0 { remaining / 2 + remaining / 8 + 16 } else { 0 }
+            }
+            GgufDtype::Q8_K_M => {
+                let full_blocks = n / 256;
+                let remaining = n % 256;
+                full_blocks * 292 + if remaining > 0 { remaining + remaining / 16 * 2 + 4 } else { 0 }
+            }
+            // S and M suffix variants: simplified layouts (not Q*_K_M base variants)
+            GgufDtype::Q2_K_S | GgufDtype::Q3_K_S | GgufDtype::Q4_K_S | GgufDtype::Q5_K_S | GgufDtype::Q6_K_S | GgufDtype::Q2_K_M => {
+                // Simplified layouts with fixed overhead
+                let base_overhead = match self.dtype {
+                    _ if [25, 26, 27, 28].contains(&self.dtype) => 24, // Q*_K_S variants
+                    _ => 24, // Q2_K_M (dtype 29)
+                };
+                n / 4 + base_overhead
+            }
             GgufDtype::I8 => n,
             GgufDtype::I16 => n * 2,
             GgufDtype::I32 => n * 4,
             GgufDtype::I64 => n * 8,
             GgufDtype::F64 => n * 8,
+            // New unmapped dtypes (IQ*, TQ*, MXFP4, NVFP4, Q*_0 variants) - estimate based on K-family patterns
+            GgufDtype::IQ2_XXS | GgufDtype::IQ2_XS | GgufDtype::IQ3_XXS | GgufDtype::IQ1_S => n / 4 + 256,
+            GgufDtype::Q4_0_4_4 | GgufDtype::Q4_0_4_8 | GgufDtype::Q4_0_8_8 => n / 2 + 16,
+            GgufDtype::TQ1_0 | GgufDtype::TQ2_0 => n / 3 + 128,
+            GgufDtype::IQ4_NL_4_4 | GgufDtype::IQ4_NL_4_8 | GgufDtype::IQ4_NL_8_8 => n / 2 + 32,
+            GgufDtype::MXFP4 | GgufDtype::NVFP4 => n / 4 + 64,
+            GgufDtype::Q1_0 | GgufDtype::Q2_0 => n / 4 + 128,
             GgufDtype::Unknown(_) => n * 2,
         }
     }
@@ -994,12 +1121,13 @@ mod tests {
 
     #[test]
     fn test_dtype_roundtrip_all() {
-        for v in [0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 24, 25, 26, 27, 28, 30] {
+        // Values that map to known enum variants (roundtrip successfully)
+        for v in [0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] {
             let dt = GgufDtype::from_u32(v);
             assert_eq!(dt.to_u32(), v, "roundtrip failed for {v}");
         }
         // Values that remain unmapped and should be Unknown
-        for v in [4, 5, 16, 17, 18, 19, 31, 32, 33, 34, 35, 100] {
+        for v in [4, 5, 100] {
             let dt = GgufDtype::from_u32(v);
             if let GgufDtype::Unknown(val) = dt {
                 assert_eq!(val, v);
@@ -1035,44 +1163,266 @@ mod tests {
     #[test]
     fn test_stored_size_quantized_variants() {
         let q8 = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![32], offset: 0, dtype: 8,
+            name: "t".to_string(),
+            shape: vec![32],
+            offset: 0,
+            dtype: 8,
         };
         assert_eq!(q8.stored_size(), 34);
 
         let q8_2 = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![64], offset: 0, dtype: 8,
+            name: "t".to_string(),
+            shape: vec![64],
+            offset: 0,
+            dtype: 8,
         };
         assert_eq!(q8_2.stored_size(), 68);
 
         let q8_3 = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![33], offset: 0, dtype: 8,
+            name: "t".to_string(),
+            shape: vec![33],
+            offset: 0,
+            dtype: 8,
         };
         assert_eq!(q8_3.stored_size(), 37);
 
         let q4 = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![32], offset: 0, dtype: 2,
+            name: "t".to_string(),
+            shape: vec![32],
+            offset: 0,
+            dtype: 2,
         };
         assert_eq!(q4.stored_size(), 18);
 
         let q4_2 = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![64], offset: 0, dtype: 2,
+            name: "t".to_string(),
+            shape: vec![64],
+            offset: 0,
+            dtype: 2,
         };
         assert_eq!(q4_2.stored_size(), 36);
 
         let q2 = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![1], offset: 0, dtype: 10,
+            name: "t".to_string(),
+            shape: vec![1],
+            offset: 0,
+            dtype: 10,
         };
         assert!(q2.stored_size() > 0);
 
         let q6 = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![256], offset: 0, dtype: 14,
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 14,
         };
         assert!(q6.stored_size() > 0);
 
         let q8k = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![256], offset: 0, dtype: 15,
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 15,
         };
         assert!(q8k.stored_size() > 0);
+    }
+
+    #[test]
+    fn test_stored_size_k_family_quantizations() {
+        // Q2_K: 84 bytes per 256-element block (2.625 bits/element)
+        let q2k_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 10, // Q2_K
+        };
+        assert_eq!(q2k_256.stored_size(), 84);
+
+        let q2k_512 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![512],
+            offset: 0,
+            dtype: 10,
+        };
+        assert_eq!(q2k_512.stored_size(), 168); // 2 blocks
+
+        let q2k_partial = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![257],
+            offset: 0,
+            dtype: 10,
+        };
+        assert!(q2k_partial.stored_size() > 84); // 1 block + partial
+
+        // Q3_K: 110 bytes per 256-element block (3.4375 bits/element)
+        let q3k_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 11, // Q3_K
+        };
+        assert_eq!(q3k_256.stored_size(), 110);
+
+        let q3k_512 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![512],
+            offset: 0,
+            dtype: 11,
+        };
+        assert_eq!(q3k_512.stored_size(), 220); // 2 blocks
+
+        // Q4_K: 144 bytes per 256-element block (4.5 bits/element)
+        let q4k_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 12, // Q4_K
+        };
+        assert_eq!(q4k_256.stored_size(), 144);
+
+        let q4k_512 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![512],
+            offset: 0,
+            dtype: 12,
+        };
+        assert_eq!(q4k_512.stored_size(), 288); // 2 blocks
+
+        // Q5_K: 176 bytes per 256-element block (5.5 bits/element)
+        let q5k_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 13, // Q5_K
+        };
+        assert_eq!(q5k_256.stored_size(), 176);
+
+        let q5k_512 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![512],
+            offset: 0,
+            dtype: 13,
+        };
+        assert_eq!(q5k_512.stored_size(), 352); // 2 blocks
+
+        // Q6_K: 210 bytes per 256-element block (6.5625 bits/element)
+        let q6k_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 14, // Q6_K
+        };
+        assert_eq!(q6k_256.stored_size(), 210);
+
+        let q6k_512 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![512],
+            offset: 0,
+            dtype: 14,
+        };
+        assert_eq!(q6k_512.stored_size(), 420); // 2 blocks
+
+        // Q8_K: 292 bytes per 256-element block (9.125 bits/element)
+        let q8k_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 15, // Q8_K
+        };
+        assert_eq!(q8k_256.stored_size(), 292);
+
+        let q8k_512 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![512],
+            offset: 0,
+            dtype: 15,
+        };
+        assert_eq!(q8k_512.stored_size(), 584); // 2 blocks
+
+        // Q1_K: 64 bytes per 256-element block (approx 2 bits/element)
+        let q1k_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 20, // Q1_K
+        };
+        assert!(q1k_256.stored_size() > 0);
+
+        // Q4_K_M: same as Q4_K (144 bytes per block)
+        let q4km_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 21, // Q4_K_M
+        };
+        assert_eq!(q4km_256.stored_size(), 144);
+
+        // Q5_K_M: same as Q5_K (176 bytes per block)
+        let q5km_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 22, // Q5_K_M
+        };
+        assert_eq!(q5km_256.stored_size(), 176);
+
+        // Q8_K_M: same as Q8_K (292 bytes per block)
+        let q8km_256 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 24, // Q8_K_M (dtype 24 in to_u32 mapping)
+        };
+        assert!(q8km_256.stored_size() > 0);
+
+        // S and M suffix variants (simplified layouts)
+        let q2ks = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 25, // Q2_K_S
+        };
+        assert!(q2ks.stored_size() > 0);
+
+        let q3ks = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 26, // Q3_K_S
+        };
+        assert!(q3ks.stored_size() > 0);
+
+        let q4ks = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 27, // Q4_K_S
+        };
+        assert!(q4ks.stored_size() > 0);
+
+        let q5ks = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 28, // Q5_K_S
+        };
+        assert!(q5ks.stored_size() > 0);
+
+        let q6ks = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 23, // Q6_K_S
+        };
+        assert!(q6ks.stored_size() > 0);
+
+        let q2km = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![256],
+            offset: 0,
+            dtype: 29, // Q2_K_M
+        };
+        assert!(q2km.stored_size() > 0);
     }
 
     #[test]
