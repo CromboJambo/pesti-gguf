@@ -155,3 +155,120 @@ fn parse_gguf_from_cursor(cursor: Cursor<Vec<u8>>) -> Result<GgufHeader, GgufErr
     let header = parse_gguf_reader(&mut Cursor::new(cursor.into_inner()))?;
     Ok(header)
 }
+
+/// Test: Unsupported array element type should fail explicitly
+#[test]
+fn test_unsupported_array_element_type() {
+    let mut buf = Vec::new();
+    
+    // Header with 0 tensors, 1 KV pair
+    buf.extend_from_slice(b"GGUF");
+    buf.extend_from_slice(&3u32.to_le_bytes());
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&1u64.to_le_bytes());
+    
+    // KV: "test.array" = array of unknown type (99)
+    let key = "test.array";
+    buf.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    buf.extend_from_slice(key.as_bytes());
+    buf.extend_from_slice(&9u32.to_le_bytes()); // ARRAY
+    
+    // Array: element type = 99 (unknown), count = 1
+    buf.extend_from_slice(&99u32.to_le_bytes()); // Unknown element type - will fail here
+    buf.extend_from_slice(&1u64.to_le_bytes()); // Count = 1
+    
+    let cursor = Cursor::new(buf);
+    let result = parse_gguf_from_cursor(cursor);
+    
+    // Should fail with InvalidValueType error (the element type is validated when read)
+    match result {
+        Err(GgufError::InvalidValueType(99)) => {
+            // Success! Got the expected error - unknown type rejected immediately
+        }
+        Ok(_) => panic!("Should have failed with InvalidValueType"),
+        Err(e) => panic!(
+            "Expected InvalidValueType(99), got {:?}",
+            e
+        ),
+    }
+}
+
+/// Test: Supported array element types should parse correctly
+#[test]
+fn test_supported_array_element_types() {
+    let mut buf = Vec::new();
+    
+    // Header with 0 tensors, 1 KV pair
+    buf.extend_from_slice(b"GGUF");
+    buf.extend_from_slice(&3u32.to_le_bytes());
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&1u64.to_le_bytes());
+    
+    // KV: "test.array" = array of uint32
+    let key = "test.array";
+    buf.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    buf.extend_from_slice(key.as_bytes());
+    buf.extend_from_slice(&9u32.to_le_bytes()); // ARRAY
+    
+    // Array: element type = 4 (Uint32), count = 3
+    buf.extend_from_slice(&4u32.to_le_bytes()); // Uint32 element type
+    buf.extend_from_slice(&3u64.to_le_bytes()); // Count = 3
+    
+    // Array elements: [1, 2, 3]
+    buf.extend_from_slice(&1u32.to_le_bytes());
+    buf.extend_from_slice(&2u32.to_le_bytes());
+    buf.extend_from_slice(&3u32.to_le_bytes());
+    
+    let cursor = Cursor::new(buf);
+    let header = parse_gguf_from_cursor(cursor).expect("Should parse uint32 array");
+    
+    assert_eq!(header.kv_pairs.len(), 1);
+    let kv = &header.kv_pairs[0];
+    assert_eq!(kv.key, "test.array");
+    
+    if let GgufKvValue::Array(arr) = &kv.value {
+        assert_eq!(arr.len(), 3);
+        assert!(matches!(arr[0], GgufKvValue::Uint32(1)));
+        assert!(matches!(arr[1], GgufKvValue::Uint32(2)));
+        assert!(matches!(arr[2], GgufKvValue::Uint32(3)));
+    } else {
+        panic!("Expected array value");
+    }
+}
+
+/// Test: Recognized but unimplemented array element types should fail with UnsupportedArrayElementType
+#[test]
+fn test_unrecognized_array_element_type() {
+    let mut buf = Vec::new();
+    
+    // Header with 0 tensors, 1 KV pair
+    buf.extend_from_slice(b"GGUF");
+    buf.extend_from_slice(&3u32.to_le_bytes());
+    buf.extend_from_slice(&0u64.to_le_bytes());
+    buf.extend_from_slice(&1u64.to_le_bytes());
+    
+    // KV: "test.array" = array of Int8Array (type 13 - recognized but unimplemented in arrays)
+    let key = "test.array";
+    buf.extend_from_slice(&(key.len() as u64).to_le_bytes());
+    buf.extend_from_slice(key.as_bytes());
+    buf.extend_from_slice(&9u32.to_le_bytes()); // ARRAY
+    
+    // Array: element type = 13 (Int8Array), count = 1
+    buf.extend_from_slice(&13u32.to_le_bytes()); // Int8Array element type (recognized)
+    buf.extend_from_slice(&1u64.to_le_bytes()); // Count = 1
+    
+    let cursor = Cursor::new(buf);
+    let result = parse_gguf_from_cursor(cursor);
+    
+    // Should fail with UnsupportedArrayElementType because Int8Array arrays aren't implemented yet
+    match result {
+        Err(GgufError::UnsupportedArrayElementType(13)) => {
+            // Success! Got the expected error for recognized but unimplemented type
+        }
+        Ok(_) => panic!("Should have failed with UnsupportedArrayElementType"),
+        Err(e) => panic!(
+            "Expected UnsupportedArrayElementType(13), got {:?}",
+            e
+        ),
+    }
+}
