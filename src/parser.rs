@@ -6,9 +6,7 @@ use crate::error::GgufError;
 use crate::types::{GgufHeader, GgufKvPair, GgufKvValue, GgufTensorInfo, GgufValueType, GgufVersion, GgufWireFormat, IntWidth};
 
 const GGUF_MAGIC: &[u8; 4] = b"GGUF";
-const GGUF_VERSION_1: u32 = 1;
-const GGUF_VERSION_2: u32 = 2;
-const GGUF_VERSION_3: u32 = 3;
+// const GGUF_VERSION_1/2/3 removed - use GgufVersion enum instead
 
 // Constants from llama.cpp reference implementation
 const GGUF_DEFAULT_ALIGNMENT: u32 = 32;
@@ -174,6 +172,12 @@ fn read_tensor_info<R: Read + Seek>(
 
     // n_dims, shape, dtype, offset are always u32/u64 across all versions
     let n_dims = reader.read_u32::<LittleEndian>()?;
+    // Clamp to 8 dimensions (llama.cpp limit) to prevent DoS via massive allocations
+    if n_dims > 8 {
+        return Err(GgufError::InvalidTensor(
+            "Too many tensor dimensions (max 8)".into()
+        ));
+    }
     let mut shape = Vec::with_capacity(n_dims as usize);
     for _ in 0..n_dims {
         shape.push(reader.read_u64::<LittleEndian>()?);
@@ -347,7 +351,10 @@ pub fn compute_data_section_start(
         if alignment > 0 {
             let remainder = data_section % alignment;
             if remainder != 0 {
-                data_section += alignment - remainder;
+                // Saturate on overflow instead of wrapping
+                data_section = data_section
+                    .checked_add(alignment - remainder)
+                    .unwrap_or(u64::MAX);
             }
         }
     }
