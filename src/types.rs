@@ -109,6 +109,12 @@ impl GgufWireFormat {
     };
 }
 
+impl From<GgufVersion> for GgufWireFormat {
+    fn from(v: GgufVersion) -> Self {
+        v.wire_format()
+    }
+}
+
 /// GGUF key-value value type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GgufValueType {
@@ -154,6 +160,39 @@ pub enum GgufKvValue {
 }
 
 impl GgufKvValue {
+    /// Compute the serialized byte size of this value, given the string length prefix width in bytes.
+    /// String and array string elements use `str_len_bytes` for their length prefix.
+    pub fn raw_byte_size_with_str_width(&self, str_len_bytes: usize) -> usize {
+        match self {
+            Self::Uint8(..) | Self::Int8(..) | Self::Bool(..) => 1,
+            Self::Uint16(..) | Self::Int16(..) | Self::Bfloat16(..) | Self::Float16(..) => 2,
+            Self::Uint32(..) | Self::Int32(..) | Self::Float32(..) => 4,
+            Self::Uint64(..) | Self::Int64(..) | Self::Float64(..) => 8,
+            Self::String(s) => str_len_bytes + s.len(),
+            Self::Int8Array(arr) => 8 + arr.len(),
+            Self::Uint8Array(arr) => 8 + arr.len(),
+            Self::Array(arr) => {
+                let elem_size = match arr.first().map(|v| v.value_type()) {
+                    Some(GgufValueType::Uint8 | GgufValueType::Int8 | GgufValueType::Bool
+                    | GgufValueType::Int8Array | GgufValueType::Uint8Array) => 1,
+                    Some(GgufValueType::Uint16 | GgufValueType::Int16
+                    | GgufValueType::Float16) => 2,
+                    Some(GgufValueType::Uint32 | GgufValueType::Int32
+                    | GgufValueType::Float32) => 4,
+                    Some(GgufValueType::Uint64 | GgufValueType::Int64) => 8,
+                    Some(GgufValueType::String) => {
+                        return arr.iter().map(|v| match v {
+                            Self::String(s) => str_len_bytes + s.len(),
+                            _ => 0,
+                        }).sum::<usize>() + 1 + 8;
+                    }
+                    _ => 4,
+                };
+                1 + 8 + arr.len() * elem_size
+            }
+        }
+    }
+
     pub fn value_type(&self) -> GgufValueType {
         match self {
             Self::Uint8(_) => GgufValueType::Uint8,
@@ -302,42 +341,18 @@ pub struct GgufKvPair {
 }
 
 impl GgufKvPair {
-    pub fn raw_byte_size(&self) -> usize {
-        self.raw_byte_size_for_version(2)
-    }
-
-    pub fn raw_byte_size_v3(&self) -> usize {
-        self.raw_byte_size_for_version(3)
-    }
-
-    fn raw_byte_size_for_version(&self, version: u32) -> usize {
+    /// Compute serialized byte size using the wire format to determine key/string widths.
+    pub fn raw_byte_size_for_format(&self, format: &GgufWireFormat) -> usize {
         let key_bytes = self.key.len();
-        let key_len_bytes = if version >= 3 { 8 } else { 4 };
-        let value_bytes = match &self.value {
-            GgufKvValue::Uint8(..) | GgufKvValue::Int8(..) | GgufKvValue::Bool(..) => 1,
-            GgufKvValue::Uint16(..) | GgufKvValue::Int16(..) | GgufKvValue::Bfloat16(..) | GgufKvValue::Float16(..) => 2,
-            GgufKvValue::Uint32(..) | GgufKvValue::Int32(..) | GgufKvValue::Float32(..) => 4,
-            GgufKvValue::Uint64(..) | GgufKvValue::Int64(..) | GgufKvValue::Float64(..) => 8,
-            GgufKvValue::String(s) => 8 + s.len(),
-            GgufKvValue::Int8Array(arr) => 8 + arr.len(),
-            GgufKvValue::Uint8Array(arr) => 8 + arr.len(),
-            GgufKvValue::Array(arr) => {
-                let elem_size = match arr.first().map(|v| v.value_type()) {
-                    Some(GgufValueType::Uint8 | GgufValueType::Int8 | GgufValueType::Bool | GgufValueType::Int8Array | GgufValueType::Uint8Array) => 1,
-                    Some(GgufValueType::Uint16 | GgufValueType::Int16 | GgufValueType::Float16) => 2,
-                    Some(GgufValueType::Uint32 | GgufValueType::Int32 | GgufValueType::Float32) => 4,
-                    Some(GgufValueType::Uint64 | GgufValueType::Int64) => 8,
-                    Some(GgufValueType::String) => {
-                        return arr.iter().map(|v| match v {
-                            GgufKvValue::String(s) => 8 + s.len(),
-                            _ => 0,
-                        }).sum::<usize>() + 1 + 8;
-                    }
-                    _ => 4,
-                };
-                1 + 8 + arr.len() * elem_size
-            }
+        let key_len_bytes: usize = match format.key_width {
+            IntWidth::U32 => 4,
+            IntWidth::U64 => 8,
         };
+        let str_len_bytes: usize = match format.string_width {
+            IntWidth::U32 => 4,
+            IntWidth::U64 => 8,
+        };
+        let value_bytes = self.value.raw_byte_size_with_str_width(str_len_bytes);
         key_len_bytes + key_bytes + 4 + value_bytes
     }
 }
