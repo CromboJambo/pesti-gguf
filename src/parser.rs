@@ -12,8 +12,50 @@ const GGUF_VERSION_3: u32 = 3;
 
 // Constants from llama.cpp reference implementation
 const GGUF_DEFAULT_ALIGNMENT: u32 = 32;
-const GGUF_MAX_KEY_LENGTH: u64 = 1024 * 1024 * 1024; // 1GB
-const GGUF_MAX_TENSOR_NAME_LENGTH: u64 = 1024 * 1024 * 1024; // 1GB
+const GGUF_MAX_KEY_LENGTH: u64 = 1024 * 1024; // 1 MiB (was 1 GiB - unrealistic for metadata keys)
+const GGUF_MAX_TENSOR_NAME_LENGTH: u64 = 1024 * 1024; // 1 MiB (was 1 GiB - realistic max is ~256 bytes)
+const GGUF_MAX_COUNT: usize = 10_000_000; // 10M elements - sanity limit for KV pairs, tensors, array elements
+
+/// Read a u64 value and convert to usize with explicit bounds checking
+fn read_usize<R: Read + Seek>(reader: &mut R, what: &'static str) -> Result<usize, GgufError> {
+    let val = reader.read_u64::<LittleEndian>()?;
+    val.try_into().map_err(|_| {
+        GgufError::InvalidMetadata(format!(
+            "{} {} exceeds maximum usize ({})",
+            what,
+            val,
+            usize::MAX
+        ))
+    })
+}
+
+/// Read a u32 value and convert to usize with explicit bounds checking
+fn read_usize_u32<R: Read + Seek>(reader: &mut R, what: &'static str) -> Result<usize, GgufError> {
+    let val = reader.read_u32::<LittleEndian>()? as usize;
+    if val > GGUF_MAX_COUNT {
+        return Err(GgufError::InvalidMetadata(format!(
+            "{} {} exceeds maximum count ({})",
+            what,
+            val,
+            GGUF_MAX_COUNT
+        )));
+    }
+    Ok(val)
+}
+
+/// Read a u64 value and convert to usize with explicit bounds checking
+fn read_usize_checked<R: Read + Seek>(reader: &mut R, what: &'static str, max: usize) -> Result<usize, GgufError> {
+    let val = reader.read_u64::<LittleEndian>()? as usize;
+    if val > max {
+        return Err(GgufError::InvalidMetadata(format!(
+            "{} {} exceeds maximum {}",
+            what,
+            val,
+            max
+        )));
+    }
+    Ok(val)
+}
 
 pub fn parse_gguf(path: &Path) -> Result<GgufHeader, GgufError> {
     use std::io::BufReader;
@@ -50,9 +92,16 @@ pub fn parse_gguf_reader<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, G
 
 fn parse_v1<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, GgufError> {
     let _tensor_count = reader.read_u32::<LittleEndian>()? as u64; // v1 uses u32 for counts (unused in v1)
-    let kv_count = reader.read_u32::<LittleEndian>()? as u64; // v1 uses u32 for counts
+    let kv_count = read_usize_u32(reader, "KV pair count")?;
 
-    let mut kv_pairs = Vec::with_capacity(kv_count as usize);
+    if kv_count > GGUF_MAX_COUNT {
+        return Err(GgufError::InvalidMetadata(format!(
+            "KV pair count {} exceeds maximum {}",
+            kv_count, GGUF_MAX_COUNT
+        )));
+    }
+
+    let mut kv_pairs = Vec::with_capacity(kv_count);
     for _ in 0..kv_count {
         kv_pairs.push(read_kv_pair_v1(reader)?); // v1 uses u32 key lengths
     }
@@ -70,10 +119,17 @@ fn parse_v1<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, GgufError> {
 }
 
 fn parse_v2<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, GgufError> {
-    let tensor_count = reader.read_u64::<LittleEndian>()?;
-    let kv_count = reader.read_u64::<LittleEndian>()?;
+    let tensor_count = read_usize(reader, "Tensor count")?;
+    let kv_count = read_usize(reader, "KV pair count")?;
 
-    let mut kv_pairs = Vec::with_capacity(kv_count as usize);
+    if tensor_count > GGUF_MAX_COUNT || kv_count > GGUF_MAX_COUNT {
+        return Err(GgufError::InvalidMetadata(format!(
+            "Counts exceed maximum: tensors={}, kvs={}",
+            tensor_count, kv_count
+        )));
+    }
+
+    let mut kv_pairs = Vec::with_capacity(kv_count);
     for _ in 0..kv_count {
         kv_pairs.push(read_kv_pair(reader)?);
     }
@@ -97,13 +153,20 @@ fn parse_v2<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, GgufError> {
 }
 
 fn parse_v3<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, GgufError> {
-    let tensor_count = reader.read_u64::<LittleEndian>()?;
-    let kv_count = reader.read_u64::<LittleEndian>()?;
+    let tensor_count = read_usize(reader, "Tensor count")?;
+    let kv_count = read_usize(reader, "KV pair count")?;
 
     // v3 practical format: same structure as v2, just different semantics
     // No extra padding after counts
 
-    let mut kv_pairs = Vec::with_capacity(kv_count as usize);
+    if tensor_count > GGUF_MAX_COUNT || kv_count > GGUF_MAX_COUNT {
+        return Err(GgufError::InvalidMetadata(format!(
+            "Counts exceed maximum: tensors={}, kvs={}",
+            tensor_count, kv_count
+        )));
+    }
+
+    let mut kv_pairs = Vec::with_capacity(kv_count);
     for _ in 0..kv_count {
         kv_pairs.push(read_kv_pair_v3(reader)?);
     }
@@ -237,7 +300,7 @@ fn read_kv_value_v3<R: Read + Seek>(
             let elem_type = GgufValueType::from_u32(elem_type_raw)
                 .ok_or(GgufError::InvalidValueType(elem_type_raw))?;
 
-            let elem_count = reader.read_u64::<LittleEndian>()? as usize;
+            let elem_count = read_usize_checked(reader, "Array element count", GGUF_MAX_COUNT)?;
 
             let mut elements = Vec::with_capacity(elem_count);
             for _ in 0..elem_count {

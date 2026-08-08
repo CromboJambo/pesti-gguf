@@ -23,10 +23,10 @@ pub enum GgufError {
     #[error("unexpected end of file - expected {expected} bytes, got {actual}")]
     UnexpectedEof { expected: usize, actual: usize },
 
-    #[error("key length out of range: {0} (max 1GB)")]
+    #[error("key length out of range: {0} (max 1MB)")]
     KeyLengthOutOfRange(u64),
 
-    #[error("tensor name length out of range: {0} (max 1GB)")]
+    #[error("tensor name length out of range: {0} (max 1MB)")]
     TensorNameLengthOutOfRange(u64),
 
     #[error("invalid tensor data: {0}")]
@@ -46,4 +46,7 @@ pub enum GgufError {
 
     #[error("unsupported array element type: {0} (expected one of UINT8, INT8, UINT16, INT16, UINT32, INT32, UINT64, INT64, FLOAT32, BOOL, STRING, ARRAY, BFLOAT16, FLOAT16)")]
     UnsupportedArrayElementType(u32),
+
+    #[error("invalid metadata: {0}")]
+    InvalidMetadata(String),
 }

@@ -114,7 +114,7 @@ impl GgufWriter {
         for (name, data) in &self.tensor_data {
             // Find corresponding tensor info to get dtype and shape
             if let Some(tensor) = self.tensors.iter().find(|t| t.name == *name) {
-                let expected_size = tensor.stored_size() as usize;
+                let expected_size = tensor.stored_size()? as usize;
                 if data.len() != expected_size {
                     return Err(GgufError::Io(format!(
                         "tensor '{}' data size mismatch: expected {}, got {}",
@@ -364,7 +364,7 @@ pub fn parse_and_rewrite<P: AsRef<Path>, Q: AsRef<Path>>(
     reader.seek(std::io::SeekFrom::Start(header.data_section_start))?;
 
     for tensor in &tensors_clone {
-        let data_size = tensor.stored_size() as usize;
+        let data_size = tensor.stored_size()? as usize;
         let mut data = vec![0u8; data_size];
         reader.read_exact(&mut data)?;
 
@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn test_round_trip_full_model() {
+    fn test_round_trip_full_model() -> Result<(), GgufError> {
         // Simulate a complete model write/read cycle
         let mut writer = GgufWriter::new();
 
@@ -659,7 +659,7 @@ mod tests {
         
         for name in &tensor_names {
             if let Some(tensor) = writer.tensors.iter().find(|t| t.name == *name) {
-                let data_size = tensor.stored_size() as usize;
+                let data_size = tensor.stored_size()? as usize;
                 let data = vec![0u8; data_size];
                 writer.add_tensor_data(name, data);
             }
@@ -706,5 +706,6 @@ mod tests {
 
         // Clean up
         let _ = std::fs::remove_file(output_path);
+        Ok(())
     }
 }
