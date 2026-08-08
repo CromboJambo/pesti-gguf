@@ -133,7 +133,17 @@ impl GgufWriter {
             }
         }
 
-        // 7. Write tensor data (each aligned to alignment boundary)
+        // 7. Validate tensor data matches tensor metadata
+        for (name, _) in &self.tensor_data {
+            if !self.tensors.iter().any(|t| t.name == *name) {
+                return Err(GgufError::Io(format!(
+                    "tensor data '{}' has no matching tensor metadata",
+                    name
+                )));
+            }
+        }
+
+        // 8. Write tensor data (each aligned to alignment boundary)
         for (name, data) in &self.tensor_data {
             // Pad to alignment boundary before each tensor
             let current_pos = writer.stream_position()?;
