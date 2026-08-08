@@ -262,15 +262,14 @@ impl GgufDtype {
             21 => Self::Q4_K_M,  // Q4_K_M
             22 => Self::Q5_K_M,  // Q5_K_M
             23 => Self::Q6_K_S,  // Q6_K_S
-            // NOTE: dtype 24-28 have conflicts in llama.cpp between I* and Q*_K_S types
-            // Resolution strategy: prioritize quantization types (Q*_K_S) over integer types (I*)
-            // This matches llama.cpp's actual behavior where Q*_K_S are more commonly used
-            // See: https://github.com/ggml-org/llama.cpp/blob/master/src/llama.cpp#L1234
-            24 => Self::Q8_K_M,    // Q8_K_M (also used by I8 - conflict resolved to quant)
-            25 => Self::Q2_K_S,    // Q2_K_S (also used by I16 - conflict resolved to quant)
-            26 => Self::Q3_K_S,    // Q3_K_S (also used by I32 - conflict resolved to quant)
-            27 => Self::Q4_K_S,    // Q4_K_S (also used by I64 - conflict resolved to quant)
-            28 => Self::Q5_K_S,    // Q5_K_S (also used by F64 - conflict resolved to quant)
+            // NOTE: dtype 24-28 are integer/F64 types per official ggml.h
+            // These were historically used for I8/I16/I32/I64/F64 and kept stable for backward compatibility
+            // See: https://github.com/ggml-org/llama.cpp/blob/master/ggml/include/ggml.h
+            24 => Self::I8,      // Official ggml.h: GGML_TYPE_I8 = 24
+            25 => Self::I16,     // Official ggml.h: GGML_TYPE_I16 = 25
+            26 => Self::I32,     // Official ggml.h: GGML_TYPE_I32 = 26
+            27 => Self::I64,     // Official ggml.h: GGML_TYPE_I64 = 27
+            28 => Self::F64,     // Official ggml.h: GGML_TYPE_F64 = 28
             29 => Self::Q2_K_M,  // Q2_K_M
             30 => Self::BF16,    // BF16
             31 => Self::Q4_0_4_4, // Q4_0_4_4 (deprecated)
@@ -315,11 +314,13 @@ impl GgufDtype {
             Self::Q4_K_M => 21,
             Self::Q5_K_M => 22,
             Self::Q6_K_S => 23,
-            Self::Q8_K_M => 24,
-            Self::Q2_K_S => 25,
-            Self::Q3_K_S => 26,
-            Self::Q4_K_S => 27,
-            Self::Q5_K_S => 28,
+            // Q8_K_M doesn't exist as a separate type - it's just Q8_K (dtype 15)
+            // These are the S/M suffix variants that map to I*/F64 slots
+            Self::Q8_K_M => 15, // Same as Q8_K for backward compatibility
+            Self::Q2_K_S => 25, // Maps to I16 slot but represents Q2_K_S (conflict resolved)
+            Self::Q3_K_S => 26, // Maps to I32 slot but represents Q3_K_S (conflict resolved)
+            Self::Q4_K_S => 27, // Maps to I64 slot but represents Q4_K_S (conflict resolved)
+            Self::Q5_K_S => 28, // Maps to F64 slot but represents Q5_K_S (conflict resolved)
             Self::Q2_K_M => 29,
             // New unmapped dtypes (IQ*, TQ*, MXFP4, NVFP4, Q*_0 variants)
             Self::IQ2_XXS => 16,
@@ -1140,40 +1141,41 @@ mod tests {
 
     #[test]
     fn test_dtype_conflict_resolution() {
-        // Test dtype 24-28 conflict resolution: prioritize Q*_K_S over I* types
-        // This matches llama.cpp's behavior where quantization types are more common
+        // Test dtype 24-28 are now correctly mapped to I*/F64 per official ggml.h
+        // These were historically ambiguous but now map directly:
+        // 24 = I8, 25 = I16, 26 = I32, 27 = I64, 28 = F64
         
-        // dtype 24: Q8_K_M vs I8 - should resolve to Q8_K_M (quantization)
+        // dtype 24: Officially I8 per ggml.h
         let dt_24 = GgufDtype::from_u32(24);
-        assert_eq!(dt_24, GgufDtype::Q8_K_M, "dtype 24 should resolve to Q8_K_M");
-        assert_eq!(dt_24.to_u32(), 24, "Q8_K_M should map back to 24");
+        assert_eq!(dt_24, GgufDtype::I8, "dtype 24 should be I8");
+        assert_eq!(dt_24.to_u32(), 24, "I8 should map back to 24");
         
-        // dtype 25: Q2_K_S vs I16 - should resolve to Q2_K_S (quantization)
+        // dtype 25: Officially I16 per ggml.h
         let dt_25 = GgufDtype::from_u32(25);
-        assert_eq!(dt_25, GgufDtype::Q2_K_S, "dtype 25 should resolve to Q2_K_S");
-        assert_eq!(dt_25.to_u32(), 25, "Q2_K_S should map back to 25");
+        assert_eq!(dt_25, GgufDtype::I16, "dtype 25 should be I16");
+        assert_eq!(dt_25.to_u32(), 25, "I16 should map back to 25");
         
-        // dtype 26: Q3_K_S vs I32 - should resolve to Q3_K_S (quantization)
+        // dtype 26: Officially I32 per ggml.h
         let dt_26 = GgufDtype::from_u32(26);
-        assert_eq!(dt_26, GgufDtype::Q3_K_S, "dtype 26 should resolve to Q3_K_S");
-        assert_eq!(dt_26.to_u32(), 26, "Q3_K_S should map back to 26");
+        assert_eq!(dt_26, GgufDtype::I32, "dtype 26 should be I32");
+        assert_eq!(dt_26.to_u32(), 26, "I32 should map back to 26");
         
-        // dtype 27: Q4_K_S vs I64 - should resolve to Q4_K_S (quantization)
+        // dtype 27: Officially I64 per ggml.h
         let dt_27 = GgufDtype::from_u32(27);
-        assert_eq!(dt_27, GgufDtype::Q4_K_S, "dtype 27 should resolve to Q4_K_S");
-        assert_eq!(dt_27.to_u32(), 27, "Q4_K_S should map back to 27");
+        assert_eq!(dt_27, GgufDtype::I64, "dtype 27 should be I64");
+        assert_eq!(dt_27.to_u32(), 27, "I64 should map back to 27");
         
-        // dtype 28: Q5_K_S vs F64 - should resolve to Q5_K_S (quantization)
+        // dtype 28: Officially F64 per ggml.h
         let dt_28 = GgufDtype::from_u32(28);
-        assert_eq!(dt_28, GgufDtype::Q5_K_S, "dtype 28 should resolve to Q5_K_S");
-        assert_eq!(dt_28.to_u32(), 28, "Q5_K_S should map back to 28");
+        assert_eq!(dt_28, GgufDtype::F64, "dtype 28 should be F64");
+        assert_eq!(dt_28.to_u32(), 28, "F64 should map back to 28");
         
-        // Verify these are all recognized as quantized
-        assert!(dt_24.is_quantized());
-        assert!(dt_25.is_quantized());
-        assert!(dt_26.is_quantized());
-        assert!(dt_27.is_quantized());
-        assert!(dt_28.is_quantized());
+        // Verify these are NOT quantized (they're integer/F64 types)
+        assert!(!dt_24.is_quantized());
+        assert!(!dt_25.is_quantized());
+        assert!(!dt_26.is_quantized());
+        assert!(!dt_27.is_quantized());
+        assert!(!dt_28.is_quantized());
     }
 
     #[test]
@@ -1466,33 +1468,48 @@ mod tests {
 
     #[test]
     fn test_stored_size_integer_types() {
-        // NOTE: dtype 24-28 now resolve to Q*_K_S quantization types, not I* integer types
-        // due to conflict resolution prioritizing quantization over integer types
+        // NOTE: dtype 24-28 now resolve to I*/F64 integer types, not Q*_K_S quantization types
+        // per official ggml.h mapping
         
-        let q8km = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![100], offset: 0, dtype: 24, // Q8_K_M
+        let i8 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![100],
+            offset: 0,
+            dtype: 24, // I8 - should have exact size (1 byte per element)
         };
-        assert!(q8km.stored_size() > 0); // Quantized - size depends on algorithm
+        assert_eq!(i8.stored_size(), 100); // 100 elements * 1 byte
         
-        let q2ks = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![100], offset: 0, dtype: 25, // Q2_K_S
+        let i16 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![100],
+            offset: 0,
+            dtype: 25, // I16 - should have exact size (2 bytes per element)
         };
-        assert!(q2ks.stored_size() > 0);
+        assert_eq!(i16.stored_size(), 200); // 100 elements * 2 bytes
         
-        let q3ks = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![100], offset: 0, dtype: 26, // Q3_K_S
+        let i32 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![100],
+            offset: 0,
+            dtype: 26, // I32 - should have exact size (4 bytes per element)
         };
-        assert!(q3ks.stored_size() > 0);
+        assert_eq!(i32.stored_size(), 400); // 100 elements * 4 bytes
         
-        let q4ks = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![100], offset: 0, dtype: 27, // Q4_K_S
+        let i64 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![100],
+            offset: 0,
+            dtype: 27, // I64 - should have exact size (8 bytes per element)
         };
-        assert!(q4ks.stored_size() > 0);
+        assert_eq!(i64.stored_size(), 800); // 100 elements * 8 bytes
         
-        let q5ks = GgufTensorInfo {
-            name: "t".to_string(), shape: vec![100], offset: 0, dtype: 28, // Q5_K_S
+        let f64 = GgufTensorInfo {
+            name: "t".to_string(),
+            shape: vec![100],
+            offset: 0,
+            dtype: 28, // F64 - should have exact size (8 bytes per element)
         };
-        assert!(q5ks.stored_size() > 0);
+        assert_eq!(f64.stored_size(), 800); // 100 elements * 8 bytes
     }
 
     #[test]
