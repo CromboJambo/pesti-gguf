@@ -76,29 +76,36 @@ impl GgufWriter {
         // 1. Write magic (4 bytes)
         writer.write_all(b"GGUF")?;
 
-        // 2. Write version (u64 LE)
+        // 2. Write version (u32 LE)
         writer.write_u32::<LittleEndian>(self.version)?;
 
-        // 3. Write tensor count and KV count (u64 LE each)
-        writer.write_u64::<LittleEndian>(self.tensors.len() as u64)?;
-        writer.write_u64::<LittleEndian>(self.kv_pairs.len() as u64)?;
+        // 3. Write tensor count and KV count (version-dependent sizes)
+        //    v1: u32 counts, v2/v3: u64 counts
+        if self.version == 1 {
+            writer.write_u32::<LittleEndian>(self.tensors.len() as u32)?;
+            writer.write_u32::<LittleEndian>(self.kv_pairs.len() as u32)?;
+        } else {
+            writer.write_u64::<LittleEndian>(self.tensors.len() as u64)?;
+            writer.write_u64::<LittleEndian>(self.kv_pairs.len() as u64)?;
+        }
 
         // Calculate header sizes
         let kv_section_size = self.calculate_kv_section_size();
         let tensor_section_size = self.calculate_tensor_section_size();
 
-        // 4. Write KV pairs section
+        // 4. Write KV pairs section (version-dependent wire format)
         for kv in &self.kv_pairs {
-            self.write_kv_pair_v3(&mut writer, kv)?;
+            self.write_kv_pair(&mut writer, kv)?;
         }
 
-        // 5. Write tensor metadata section
+        // 5. Write tensor metadata section (version-dependent wire format)
         for tensor in &self.tensors {
-            self.write_tensor_info_v3(&mut writer, tensor)?;
+            self.write_tensor_info(&mut writer, tensor)?;
         }
 
         // Calculate data section start with alignment
-        let header_size = 4 + 4 + 8 + 8 + kv_section_size + tensor_section_size;
+        let count_size: u64 = if self.version == 1 { 4 } else { 8 };
+        let header_size = 4 + 4 + count_size + count_size + kv_section_size + tensor_section_size;
         let data_start = self.align_up(header_size, self.alignment);
 
         // 6. Write padding to data section start
@@ -110,8 +117,16 @@ impl GgufWriter {
             }
         }
 
-        // 7. Write tensor data
+        // 7. Write tensor data (each aligned to alignment boundary)
         for (name, data) in &self.tensor_data {
+            // Pad to alignment boundary before each tensor
+            let current_pos = writer.stream_position()?;
+            let aligned_pos = self.align_up(current_pos, self.alignment);
+            if current_pos < aligned_pos {
+                let padding = (aligned_pos - current_pos) as usize;
+                writer.write_all(&vec![0u8; padding])?;
+            }
+
             // Find corresponding tensor info to get dtype and shape
             if let Some(tensor) = self.tensors.iter().find(|t| t.name == *name) {
                 let expected_size = tensor.stored_size()? as usize;
@@ -138,7 +153,13 @@ impl GgufWriter {
     fn calculate_kv_section_size(&self) -> u64 {
         self.kv_pairs
             .iter()
-            .map(|p| p.raw_byte_size_v3() as u64)
+            .map(|p| {
+                if self.version == 3 {
+                    p.raw_byte_size_v3() as u64
+                } else {
+                    p.raw_byte_size() as u64
+                }
+            })
             .sum()
     }
 
@@ -160,7 +181,19 @@ impl GgufWriter {
         }
     }
 
-    /// Write a KV pair in v3 format.
+    /// Write a KV pair using version-appropriate wire format.
+    fn write_kv_pair(
+        &self,
+        writer: &mut BufWriter<File>,
+        kv: &GgufKvPair,
+    ) -> Result<(), GgufError> {
+        match self.version {
+            3 => self.write_kv_pair_v3(writer, kv),
+            _ => self.write_kv_pair_v1v2(writer, kv),
+        }
+    }
+
+    /// Write a KV pair in v3 format (u64 key/string lengths).
     fn write_kv_pair_v3(
         &self,
         writer: &mut BufWriter<File>,
@@ -297,7 +330,84 @@ impl GgufWriter {
         Ok(())
     }
 
-    /// Write tensor info in v3 format.
+    /// Write a KV pair in v1/v2 format (u32 key/string lengths).
+    fn write_kv_pair_v1v2(
+        &self,
+        writer: &mut BufWriter<File>,
+        kv: &GgufKvPair,
+    ) -> Result<(), GgufError> {
+        // 1. Write key length (u32 LE) — v1/v2 use u32
+        let key_bytes = kv.key.as_bytes();
+        writer.write_u32::<LittleEndian>(key_bytes.len() as u32)?;
+
+        // 2. Write key name
+        writer.write_all(key_bytes)?;
+
+        // 3. Write value type (u32 LE)
+        writer.write_u32::<LittleEndian>(kv.value_type.to_u32())?;
+
+        // 4. Write value based on type (string lengths are u32 in v1/v2)
+        self.write_kv_value_v1v2(writer, &kv.value_type, &kv.value)?;
+
+        Ok(())
+    }
+
+    /// Write a KV value in v1/v2 format (u32 string lengths).
+    fn write_kv_value_v1v2(
+        &self,
+        writer: &mut BufWriter<File>,
+        value_type: &GgufValueType,
+        value: &GgufKvValue,
+    ) -> Result<(), GgufError> {
+        match value_type {
+            GgufValueType::String => {
+                if let GgufKvValue::String(s) = value {
+                    let bytes = s.as_bytes();
+                    writer.write_u32::<LittleEndian>(bytes.len() as u32)?;
+                    writer.write_all(bytes)?;
+                }
+            }
+            GgufValueType::Array => {
+                if let GgufKvValue::Array(arr) = value {
+                    // Write element type
+                    let elem_type = arr
+                        .first()
+                        .map(|v| v.value_type())
+                        .unwrap_or(GgufValueType::Uint32);
+                    writer.write_u32::<LittleEndian>(elem_type.to_u32())?;
+
+                    // Write element count (u64 for v2, u32 for v1)
+                    if self.version == 1 {
+                        writer.write_u32::<LittleEndian>(arr.len() as u32)?;
+                    } else {
+                        writer.write_u64::<LittleEndian>(arr.len() as u64)?;
+                    }
+
+                    // Write elements (string elements use u32 lengths in v1/v2)
+                    for elem in arr {
+                        self.write_kv_value_v1v2(writer, &elem_type, elem)?;
+                    }
+                }
+            }
+            // Scalar types are the same across all versions
+            _ => self.write_kv_value_v3(writer, value_type, value)?,
+        }
+        Ok(())
+    }
+
+    /// Write tensor info using version-appropriate wire format.
+    fn write_tensor_info(
+        &self,
+        writer: &mut BufWriter<File>,
+        tensor: &GgufTensorInfo,
+    ) -> Result<(), GgufError> {
+        match self.version {
+            3 => self.write_tensor_info_v3(writer, tensor),
+            _ => self.write_tensor_info_v1v2(writer, tensor),
+        }
+    }
+
+    /// Write tensor info in v3 format (u64 name length).
     fn write_tensor_info_v3(
         &self,
         writer: &mut BufWriter<File>,
@@ -306,6 +416,36 @@ impl GgufWriter {
         // 1. Write name length (u64 LE)
         let name_bytes = tensor.name.as_bytes();
         writer.write_u64::<LittleEndian>(name_bytes.len() as u64)?;
+
+        // 2. Write name
+        writer.write_all(name_bytes)?;
+
+        // 3. Write number of dimensions (u32 LE)
+        writer.write_u32::<LittleEndian>(tensor.ndims())?;
+
+        // 4. Write shape array (n_dims * u64 LE)
+        for dim in &tensor.shape {
+            writer.write_u64::<LittleEndian>(*dim)?;
+        }
+
+        // 5. Write data type (u32 LE)
+        writer.write_u32::<LittleEndian>(tensor.dtype)?;
+
+        // 6. Write offset (u64 LE)
+        writer.write_u64::<LittleEndian>(tensor.offset)?;
+
+        Ok(())
+    }
+
+    /// Write tensor info in v1/v2 format (u32 name length).
+    fn write_tensor_info_v1v2(
+        &self,
+        writer: &mut BufWriter<File>,
+        tensor: &GgufTensorInfo,
+    ) -> Result<(), GgufError> {
+        // 1. Write name length (u32 LE) — v1/v2 use u32
+        let name_bytes = tensor.name.as_bytes();
+        writer.write_u32::<LittleEndian>(name_bytes.len() as u32)?;
 
         // 2. Write name
         writer.write_all(name_bytes)?;
