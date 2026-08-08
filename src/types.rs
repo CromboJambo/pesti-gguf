@@ -651,15 +651,40 @@ impl GgufHeader {
     }
 
     pub fn context_length(&self) -> Option<u32> {
-        self.get_kv_u32("llama.context_length").or_else(|| self.get_kv_u32("n_ctx"))
+        self.get_kv_u32("llama.context_length")
+            .or_else(|| self.get_kv_u32("n_ctx"))
+            // Then try architecture-specific key: {arch}.context_length
+            .or_else(|| {
+                self.architecture().and_then(|arch| {
+                    let arch_key = format!("{}.context_length", arch);
+                    self.get_kv_u32(&arch_key)
+                })
+            })
     }
 
     pub fn embedding_length(&self) -> Option<u32> {
-        self.get_kv_u32("llama.embedding_length").or_else(|| self.get_kv_u32("n_embd"))
+        // Try standard llama.cpp keys first
+        self.get_kv_u32("llama.embedding_length")
+            .or_else(|| self.get_kv_u32("n_embd"))
+            // Then try architecture-specific key: {arch}.embedding_length
+            .or_else(|| {
+                self.architecture().and_then(|arch| {
+                    let arch_key = format!("{}.embedding_length", arch);
+                    self.get_kv_u32(&arch_key)
+                })
+            })
     }
 
     pub fn block_count(&self) -> Option<u32> {
-        self.get_kv_u32("llama.block_count").or_else(|| self.get_kv_u32("n_layer"))
+        self.get_kv_u32("llama.block_count")
+            .or_else(|| self.get_kv_u32("n_layer"))
+            // Then try architecture-specific key: {arch}.block_count
+            .or_else(|| {
+                self.architecture().and_then(|arch| {
+                    let arch_key = format!("{}.block_count", arch);
+                    self.get_kv_u32(&arch_key)
+                })
+            })
     }
 
     pub fn has_tensor(&self, name: &str) -> bool {
@@ -760,21 +785,183 @@ mod tests {
         let tensors: Vec<GgufTensorInfo> = vec![];
         
         // Compute with 256-byte alignment - should align header size to 256
-        let data_start = compute_data_section_start(
-            &GgufWireFormat::V2,
-            &kv_pairs,
-            &tensors,
-            Some(256),
+        let data_start =
+            compute_data_section_start(&GgufWireFormat::V2, &kv_pairs, &tensors, Some(256));
+        assert_eq!(
+            data_start % 256,
+            0,
+            "Data section start should be aligned to 256 bytes"
         );
-        assert_eq!(data_start % 256, 0, "Data section start should be aligned to 256 bytes");
-        
+
         // With default alignment (32)
-        let data_start_32 = compute_data_section_start(
-            &GgufWireFormat::V2,
-            &kv_pairs,
-            &tensors,
-            Some(32),
+        let data_start_32 =
+            compute_data_section_start(&GgufWireFormat::V2, &kv_pairs, &tensors, Some(32));
+        assert_eq!(
+            data_start_32 % 32,
+            0,
+            "Data section start should be aligned to 32 bytes"
         );
-        assert_eq!(data_start_32 % 32, 0, "Data section start should be aligned to 32 bytes");
+    }
+
+    #[test]
+    fn test_embedding_length_architecture_specific() {
+        // Test that embedding_length looks for architecture-specific keys
+        let mut kv_pairs: Vec<GgufKvPair> = vec![];
+        
+        // Add architecture key
+        kv_pairs.push(GgufKvPair {
+            key: "general.architecture".to_string(),
+            value_type: GgufValueType::String,
+            value: GgufKvValue::String("qwen2".to_string()),
+        });
+        
+        // Add architecture-specific embedding_length (should be found)
+        kv_pairs.push(GgufKvPair {
+            key: "qwen2.embedding_length".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(4096),
+        });
+        
+        let header = GgufHeader {
+            version: 3,
+            kv_pairs,
+            tensors: vec![],
+            data_alignment: Some(32),
+            data_section_start: 0,
+        };
+        
+        // Should find qwen2.embedding_length
+        assert_eq!(header.embedding_length(), Some(4096));
+    }
+
+    #[test]
+    fn test_embedding_length_fallback_order() {
+        // Test fallback order: llama.embedding_length > n_embd > {arch}.embedding_length
+        
+        let mut kv_pairs: Vec<GgufKvPair> = vec![];
+        
+        // Add all three keys - should prefer llama.embedding_length
+        kv_pairs.push(GgufKvPair {
+            key: "general.architecture".to_string(),
+            value_type: GgufValueType::String,
+            value: GgufKvValue::String("mistral".to_string()),
+        });
+        kv_pairs.push(GgufKvPair {
+            key: "llama.embedding_length".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(5120),
+        });
+        kv_pairs.push(GgufKvPair {
+            key: "n_embd".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(4096),
+        });
+        kv_pairs.push(GgufKvPair {
+            key: "mistral.embedding_length".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(3072),
+        });
+        
+        let header = GgufHeader {
+            version: 3,
+            kv_pairs,
+            tensors: vec![],
+            data_alignment: Some(32),
+            data_section_start: 0,
+        };
+        
+        // Should prefer llama.embedding_length (5120) over all others
+        assert_eq!(header.embedding_length(), Some(5120));
+
+        // Test fallback to n_embd when llama.embedding_length is missing
+        let mut kv_pairs2: Vec<GgufKvPair> = vec![];
+        kv_pairs2.push(GgufKvPair {
+            key: "general.architecture".to_string(),
+            value_type: GgufValueType::String,
+            value: GgufKvValue::String("mistral".to_string()),
+        });
+        kv_pairs2.push(GgufKvPair {
+            key: "n_embd".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(4096),
+        });
+        kv_pairs2.push(GgufKvPair {
+            key: "mistral.embedding_length".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(3072),
+        });
+        
+        let header2 = GgufHeader {
+            version: 3,
+            kv_pairs: kv_pairs2,
+            tensors: vec![],
+            data_alignment: Some(32),
+            data_section_start: 0,
+        };
+        
+        // Should prefer n_embd (4096) over mistral.embedding_length (3072)
+        assert_eq!(header2.embedding_length(), Some(4096));
+
+        // Test fallback to architecture-specific key when both standard keys are missing
+        let mut kv_pairs3: Vec<GgufKvPair> = vec![];
+        kv_pairs3.push(GgufKvPair {
+            key: "general.architecture".to_string(),
+            value_type: GgufValueType::String,
+            value: GgufKvValue::String("mistral".to_string()),
+        });
+        kv_pairs3.push(GgufKvPair {
+            key: "mistral.embedding_length".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(3072),
+        });
+        
+        let header3 = GgufHeader {
+            version: 3,
+            kv_pairs: kv_pairs3,
+            tensors: vec![],
+            data_alignment: Some(32),
+            data_section_start: 0,
+        };
+        
+        // Should fall back to architecture-specific key (3072)
+        assert_eq!(header3.embedding_length(), Some(3072));
+
+        // Test returns None when no embedding_length key exists
+        let mut kv_pairs4: Vec<GgufKvPair> = vec![];
+        kv_pairs4.push(GgufKvPair {
+            key: "general.architecture".to_string(),
+            value_type: GgufValueType::String,
+            value: GgufKvValue::String("mistral".to_string()),
+        });
+        
+        let header4 = GgufHeader {
+            version: 3,
+            kv_pairs: kv_pairs4,
+            tensors: vec![],
+            data_alignment: Some(32),
+            data_section_start: 0,
+        };
+        
+        // Should return None when no embedding_length key exists
+        assert_eq!(header4.embedding_length(), None);
+
+        // Test returns None when architecture is unknown (can't form arch-specific key)
+        let mut kv_pairs5: Vec<GgufKvPair> = vec![];
+        kv_pairs5.push(GgufKvPair {
+            key: "n_embd".to_string(),
+            value_type: GgufValueType::Uint32,
+            value: GgufKvValue::Uint32(4096),
+        });
+        
+        let header5 = GgufHeader {
+            version: 3,
+            kv_pairs: kv_pairs5,
+            tensors: vec![],
+            data_alignment: Some(32),
+            data_section_start: 0,
+        };
+        
+        // Should still find n_embd even without architecture key
+        assert_eq!(header5.embedding_length(), Some(4096));
     }
 }
