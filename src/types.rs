@@ -358,6 +358,10 @@ impl GgufKvPair {
 }
 
 /// GGUF tensor data type.
+/// 
+/// Note: Uses snake_case to match llama.cpp's ggml.h naming convention,
+/// even though Rust typically uses PascalCase for enum variants.
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GgufDtype {
     F32, F16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q2K, Q3K, Q4K, Q5K, Q6K, Q8K,

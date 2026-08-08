@@ -8,7 +8,7 @@ repository = "https://github.com/crombojambo/pesti-gguf"
 readme = "README.md"
 keywords = ["gguf", "llama", "llm", "parser", "quantization"]
 categories = ["parsing", "data-structures", "encoding"]
-authors = ["crombo <your-email@example.com>"]
+authors = ["Dustin Grover dustinjgrover@gmail.com>"]
 
 [dependencies]
 # Serialization

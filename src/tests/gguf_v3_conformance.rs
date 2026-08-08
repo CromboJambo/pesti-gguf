@@ -6,9 +6,7 @@
 use crate::{parse_gguf, GgufKvValue};
 
 /// Test parsing a known GGUF v3 file and validates specific KV pairs
-/// Requires conformance-corpus/qwen2.5-0.5b-instruct-q4_k_m.gguf
 #[test]
-#[ignore = "Requires conformance corpus files"]
 fn test_qwen2_5_0_5b_conformance() {
     let path = crate::tests::conformance_corpus_path("qwen2.5-0.5b-instruct-q4_k_m.gguf");
 
