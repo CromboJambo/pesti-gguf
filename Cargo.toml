@@ -29,3 +29,11 @@ criterion = "0.5"
 [[bench]]
 name = "pesti_gguf_benchmarks"
 harness = false
+
+[[bench]]
+name = "comprehensive_bench"
+harness = false
+
+[[bench]]
+name = "detailed_bench"
+harness = false
