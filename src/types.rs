@@ -599,8 +599,14 @@ impl GgufTensorInfo {
         }
     }
 
-    pub fn raw_byte_size(&self) -> usize {
-        8 + self.name.len() + 4 + (self.shape.len() * 8) + 4 + 8
+    /// Compute serialized byte size using the wire format to determine name length width.
+    pub fn raw_byte_size_for_format(&self, format: &GgufWireFormat) -> usize {
+        let name_len_bytes: usize = match format.tensor_name_width {
+            IntWidth::U32 => 4,
+            IntWidth::U64 => 8,
+        };
+        // n_dims(u32) + shape(n * u64) + dtype(u32) + offset(u64) are always the same
+        name_len_bytes + self.name.len() + 4 + (self.shape.len() * 8) + 4 + 8
     }
 }
 
@@ -744,11 +750,21 @@ mod tests {
         let tensors: Vec<GgufTensorInfo> = vec![];
         
         // Compute with 256-byte alignment - should align header size to 256
-        let data_start = compute_data_section_start(2, &kv_pairs, &tensors, Some(256));
+        let data_start = compute_data_section_start(
+            &GgufWireFormat::V2,
+            &kv_pairs,
+            &tensors,
+            Some(256),
+        );
         assert_eq!(data_start % 256, 0, "Data section start should be aligned to 256 bytes");
         
         // With default alignment (32)
-        let data_start_32 = compute_data_section_start(2, &kv_pairs, &tensors, Some(32));
+        let data_start_32 = compute_data_section_start(
+            &GgufWireFormat::V2,
+            &kv_pairs,
+            &tensors,
+            Some(32),
+        );
         assert_eq!(data_start_32 % 32, 0, "Data section start should be aligned to 32 bytes");
     }
 }
