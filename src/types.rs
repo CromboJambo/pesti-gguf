@@ -272,35 +272,78 @@ pub enum GgufDtype {
 
 impl GgufDtype {
     pub const fn from_u32(v: u32) -> Self {
+        // IDs 0-42 follow official ggml.h / GGUF conventions.
+        // IDs 43+ are pesti-specific custom types (non-colliding with standard GGML).
         match v {
             0 => Self::F32, 1 => Self::F16, 2 => Self::Q4_0, 3 => Self::Q4_1,
             6 => Self::Q5_0, 7 => Self::Q5_1, 8 => Self::Q8_0, 9 => Self::Q8_1,
             10 => Self::Q2_K, 11 => Self::Q3_K, 12 => Self::Q4_K, 13 => Self::Q5_K,
             14 => Self::Q6_K, 15 => Self::Q8_K, 16 => Self::IQ2_XXS, 17 => Self::IQ2_XS,
             18 => Self::IQ3_XXS, 19 => Self::IQ1_S, 20 => Self::Q1_K, 21 => Self::Q4_K_M,
-            22 => Self::Q5_K_M, 23 => Self::Q6_K_S, 24 => Self::I8, 25 => Self::I16,
+            22 => Self::Q5_K_M, 24 => Self::I8, 25 => Self::I16,
             26 => Self::I32, 27 => Self::I64, 28 => Self::F64, 29 => Self::Q2_K_M,
             30 => Self::BF16, 31 => Self::Q4_0_4_4, 32 => Self::Q4_0_4_8, 33 => Self::Q4_0_8_8,
             34 => Self::TQ1_0, 35 => Self::TQ2_0, 36 => Self::IQ4_NL_4_4, 37 => Self::IQ4_NL_4_8,
             38 => Self::IQ4_NL_8_8, 39 => Self::MXFP4, 40 => Self::NVFP4, 41 => Self::Q1_0,
-            42 => Self::Q2_0, _ => Self::Unknown(v),
+            42 => Self::Q2_0,
+            // pesti custom: _S and _M variants (non-standard, no ggml.h equivalent)
+            43 => Self::Q6_K_S, 44 => Self::Q8_K_M,
+            45 => Self::Q2_K_S, 46 => Self::Q3_K_S, 47 => Self::Q4_K_S,
+            48 => Self::Q5_K_S,
+            _ => Self::Unknown(v),
         }
     }
 
     pub const fn to_u32(self) -> u32 {
+        // Must match from_u32() exactly. IDs 43+ are pesti custom types.
         match self {
-            Self::F32 => 0, Self::F16 => 1, Self::Q4_0 => 2, Self::Q4_1 => 3,
-            Self::Q5_0 => 6, Self::Q5_1 => 7, Self::Q8_0 => 8, Self::Q8_1 => 9,
-            Self::Q2_K => 10, Self::Q3_K => 11, Self::Q4_K => 12, Self::Q5_K => 13,
-            Self::Q6_K => 14, Self::Q8_K => 15, Self::I8 => 24, Self::I16 => 25,
-            Self::I32 => 26, Self::I64 => 27, Self::F64 => 28, Self::BF16 => 30,
-            Self::Q1_K => 20, Self::Q4_K_M => 21, Self::Q5_K_M => 22, Self::Q6_K_S => 23,
-            Self::Q8_K_M => 15, Self::Q2_K_S => 25, Self::Q3_K_S => 26, Self::Q4_K_S => 27,
-            Self::Q5_K_S => 28, Self::Q2_K_M => 29, Self::IQ2_XXS => 16, Self::IQ2_XS => 17,
-            Self::IQ3_XXS => 18, Self::IQ1_S => 19, Self::Q4_0_4_4 => 31, Self::Q4_0_4_8 => 32,
-            Self::Q4_0_8_8 => 33, Self::TQ1_0 => 34, Self::TQ2_0 => 35,
-            Self::IQ4_NL_4_4 => 36, Self::IQ4_NL_4_8 => 37, Self::IQ4_NL_8_8 => 38,
-            Self::MXFP4 => 39, Self::NVFP4 => 40, Self::Q1_0 => 41, Self::Q2_0 => 42,
+            Self::F32 => 0,
+            Self::F16 => 1,
+            Self::Q4_0 => 2,
+            Self::Q4_1 => 3,
+            Self::Q5_0 => 6,
+            Self::Q5_1 => 7,
+            Self::Q8_0 => 8,
+            Self::Q8_1 => 9,
+            Self::Q2_K => 10,
+            Self::Q3_K => 11,
+            Self::Q4_K => 12,
+            Self::Q5_K => 13,
+            Self::Q6_K => 14,
+            Self::Q8_K => 15,
+            Self::I8 => 24,
+            Self::I16 => 25,
+            Self::I32 => 26,
+            Self::I64 => 27,
+            Self::F64 => 28,
+            Self::BF16 => 30,
+            Self::Q1_K => 20,
+            Self::Q4_K_M => 21,
+            Self::Q5_K_M => 22,
+            Self::Q2_K_M => 29,
+            Self::IQ2_XXS => 16,
+            Self::IQ2_XS => 17,
+            Self::IQ3_XXS => 18,
+            Self::IQ1_S => 19,
+            Self::Q4_0_4_4 => 31,
+            Self::Q4_0_4_8 => 32,
+            Self::Q4_0_8_8 => 33,
+            Self::TQ1_0 => 34,
+            Self::TQ2_0 => 35,
+            Self::IQ4_NL_4_4 => 36,
+            Self::IQ4_NL_4_8 => 37,
+            Self::IQ4_NL_8_8 => 38,
+            Self::MXFP4 => 39,
+            Self::NVFP4 => 40,
+            Self::Q1_0 => 41,
+            Self::Q2_0 => 42,
+            // pesti custom: _S and _M variants (non-standard, no ggml.h equivalent)
+            Self::Q6_K_S => 43,
+            Self::Q8_K_M => 44,
+            Self::Q2_K_S => 45,
+            Self::Q3_K_S => 46,
+            Self::Q4_K_S => 47,
+            Self::Q5_K_S => 48,
             Self::Unknown(v) => v,
         }
     }
@@ -512,7 +555,8 @@ impl GgufHeader {
     }
 
     pub fn total_tensor_bytes_f32(&self) -> u64 {
-        self.tensors.iter().map(|t| t.element_count()).sum()
+        // Return actual byte count for F32 tensors (element_count * 4 bytes per F32)
+        self.tensors.iter().map(|t| t.element_count() * 4).sum()
     }
 }
 
@@ -522,7 +566,12 @@ mod tests {
 
     #[test]
     fn test_dtype_roundtrip_all() {
-        for v in [0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] {
+        // All valid dtype IDs: 0-42 (official) + 43-48 (pesti custom)
+        for v in [
+            0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
+            25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
+            46, 47, 48,
+        ] {
             let dt = GgufDtype::from_u32(v);
             assert_eq!(dt.to_u32(), v, "roundtrip failed for {v}");
         }
@@ -572,5 +621,38 @@ mod tests {
     fn test_stored_size_overflow() {
         let info = GgufTensorInfo { name: "t".to_string(), shape: vec![u64::MAX / 4 + 1], offset: 0, dtype: 0 };
         assert!(info.stored_size().is_err());
+    }
+
+    #[test]
+    fn test_total_tensor_bytes_f32() {
+        let header = GgufHeader {
+            version: 3,
+            kv_pairs: vec![],
+            tensors: vec![
+                GgufTensorInfo { name: "a".into(), shape: vec![100], offset: 0, dtype: 0 }, // F32
+                GgufTensorInfo { name: "b".into(), shape: vec![50], offset: 0, dtype: 0 },   // F32
+            ],
+            data_alignment: Some(32),
+            data_section_start: 0,
+        };
+        // (100 + 50) elements * 4 bytes per F32 = 600 bytes
+        assert_eq!(header.total_tensor_bytes_f32(), 600);
+    }
+
+    #[test]
+    fn test_v2_alignment_computation() {
+        use crate::parser::compute_data_section_start;
+        
+        // Test that alignment is applied for v2 files with custom alignment
+        let kv_pairs: Vec<GgufKvPair> = vec![];
+        let tensors: Vec<GgufTensorInfo> = vec![];
+        
+        // Compute with 256-byte alignment - should align header size to 256
+        let data_start = compute_data_section_start(2, &kv_pairs, &tensors, Some(256));
+        assert_eq!(data_start % 256, 0, "Data section start should be aligned to 256 bytes");
+        
+        // With default alignment (32)
+        let data_start_32 = compute_data_section_start(2, &kv_pairs, &tensors, Some(32));
+        assert_eq!(data_start_32 % 32, 0, "Data section start should be aligned to 32 bytes");
     }
 }

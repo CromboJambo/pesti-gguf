@@ -355,9 +355,10 @@ fn read_kv_value_v3<R: Read + Seek>(
                         elements.push(GgufKvValue::Bool(val));
                     }
                     GgufValueType::Bfloat16 => {
-                        // BF16 is stored as u16, but we store as f32 (the actual value)
+                        // BF16 is stored as u16, reinterpret as f32 via bit shift (not numeric conversion)
                         let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Bfloat16(val as f32));
+                        // 0x3F80 → 1.0 (bit pattern), not 16256.0 (numeric conversion)
+                        elements.push(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)));
                     }
                     GgufValueType::Float16 => {
                         let val = reader.read_u16::<LittleEndian>()?;
@@ -438,13 +439,13 @@ fn read_kv_value_v2<R: Read + Seek>(
             ))
         }
         GgufValueType::Array => {
-            let elem_count = reader.read_u64::<LittleEndian>()? as usize;
-            let mut elements = Vec::with_capacity(elem_count);
-            
-            // Read element type (same for all versions)
+            // GGUF wire format (all versions): element type first, then count
             let elem_type_raw = reader.read_u32::<LittleEndian>()?;
             let elem_type = GgufValueType::from_u32(elem_type_raw)
                 .ok_or(GgufError::InvalidValueType(elem_type_raw))?;
+
+            let elem_count = reader.read_u64::<LittleEndian>()? as usize;
+            let mut elements = Vec::with_capacity(elem_count);
             
             for _ in 0..elem_count {
                 // For each element, recursively read based on element type
@@ -494,9 +495,10 @@ fn read_kv_value_v2<R: Read + Seek>(
                         elements.push(GgufKvValue::Bool(val));
                     }
                     GgufValueType::Bfloat16 => {
-                        // BF16 is stored as u16, but we store as f32 (the actual value)
+                        // BF16 is stored as u16, reinterpret as f32 via bit shift (not numeric conversion)
                         let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Bfloat16(val as f32));
+                        // 0x3F80 → 1.0 (bit pattern), not 16256.0 (numeric conversion)
+                        elements.push(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)));
                     }
                     GgufValueType::Float16 => {
                         let val = reader.read_u16::<LittleEndian>()?;
@@ -701,14 +703,12 @@ pub fn compute_data_section_start(
         .and_then(|v| v.checked_add(tensor_size))
         .unwrap_or(u64::MAX);
 
-    // Apply alignment padding for v3
-    if version == 3 {
-        if let Some(alignment) = data_alignment {
-            if alignment > 0 {
-                let remainder = data_section % alignment;
-                if remainder != 0 {
-                    data_section += alignment - remainder;
-                }
+    // Apply alignment padding (all versions)
+    if let Some(alignment) = data_alignment {
+        if alignment > 0 {
+            let remainder = data_section % alignment;
+            if remainder != 0 {
+                data_section += alignment - remainder;
             }
         }
     }
@@ -768,9 +768,14 @@ where
 }
 
 pub fn tensor_bytes_for_dtype(dtype: u32, element_count: u64) -> usize {
-    // Placeholder - actual implementation depends on quantization type
-    let _ = dtype;
-    element_count as usize * 4 // rough guess
+    // Delegate to stored_size which has correct per-type calculations
+    let info = GgufTensorInfo {
+        name: String::new(),
+        shape: vec![element_count],
+        offset: 0,
+        dtype,
+    };
+    info.stored_size().unwrap_or(0) as usize
 }
 
 #[cfg(test)]
@@ -819,6 +824,27 @@ mod tests_real_file {
 
         eprintln!("SUCCESS: Real GGUF file parsed correctly!");
     }
+
+    #[test]
+    fn test_bfloat16_bit_reinterpretation() {
+        // Test that BF16 values are correctly reinterpreted as bit patterns, not numeric conversions
+        // 0x3F80 in BF16 represents 1.0 (not 16256.0 which would be from numeric conversion)
+        
+        let bf16_bits: u16 = 0x3F80;
+        // The correct interpretation: shift bits to high position and reinterpret as f32
+        let expected_value = f32::from_bits((bf16_bits as u32) << 16);
+        
+        assert_eq!(expected_value, 1.0, "BF16 0x3F80 should represent 1.0");
+        
+        // Test zero value: 0x0000 represents 0.0 in BF16
+        let bf16_zero: u16 = 0x0000;
+        let zero_value = f32::from_bits((bf16_zero as u32) << 16);
+        assert_eq!(zero_value, 0.0, "BF16 0x0000 should represent 0.0");
+        
+        // Test that numeric conversion would give wrong result for 0x3F80
+        let wrong_conversion = bf16_bits as f32;
+        assert_eq!(wrong_conversion, 16256.0, "Numeric conversion of 0x3F80 gives 16256.0 (WRONG)");
+    }
 }
 /// Read KV value for v1 format (strings use u32 lengths, array counts use u32)
 fn read_kv_value_v1<R: Read + Seek>(
@@ -835,14 +861,14 @@ fn read_kv_value_v1<R: Read + Seek>(
             ))
         }
         GgufValueType::Array => {
-            // v1 uses u32 for array element count
-            let elem_count = reader.read_u32::<LittleEndian>()? as usize;
-            let mut elements = Vec::with_capacity(elem_count);
-            
-            // Read element type (same for all versions)
+            // GGUF wire format (all versions): element type first, then count
             let elem_type_raw = reader.read_u32::<LittleEndian>()?;
             let elem_type = GgufValueType::from_u32(elem_type_raw)
                 .ok_or(GgufError::InvalidValueType(elem_type_raw))?;
+
+            // v1 uses u32 for array element count
+            let elem_count = reader.read_u32::<LittleEndian>()? as usize;
+            let mut elements = Vec::with_capacity(elem_count);
             
             for _ in 0..elem_count {
                 // For each element, recursively read based on element type
@@ -892,9 +918,10 @@ fn read_kv_value_v1<R: Read + Seek>(
                         elements.push(GgufKvValue::Bool(val));
                     }
                     GgufValueType::Bfloat16 => {
-                        // BF16 is stored as u16, but we store as f32 (the actual value)
+                        // BF16 is stored as u16, reinterpret as f32 via bit shift (not numeric conversion)
                         let val = reader.read_u16::<LittleEndian>()?;
-                        elements.push(GgufKvValue::Bfloat16(val as f32));
+                        // 0x3F80 → 1.0 (bit pattern), not 16256.0 (numeric conversion)
+                        elements.push(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)));
                     }
                     GgufValueType::Float16 => {
                         let val = reader.read_u16::<LittleEndian>()?;
