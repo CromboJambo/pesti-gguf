@@ -3,8 +3,7 @@
 //! These tests validate the parser against larger GGUF files with more complex structures,
 //! ensuring correctness across a wider range of model architectures and tensor configurations.
 
-use crate::*;
-use crate::tests::conformance_corpus_path;
+use crate::{parse_gguf, GgufKvValue};
 use std::collections::HashMap;
 
 /// Test parsing a larger model (3B parameters) — verifies basic structure works
@@ -12,7 +11,7 @@ use std::collections::HashMap;
 #[test]
 #[ignore = "Requires conformance corpus files"]
 fn test_parse_qwen2_5_3b_conformance() {
-    let path = conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
+    let path = crate::tests::conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
 
     // Parse the file — if this succeeds, parser handles larger files correctly
     let header = parse_gguf(&path).expect("Failed to parse Qwen2.5 3B GGUF file");
@@ -34,7 +33,7 @@ fn test_parse_qwen2_5_3b_conformance() {
         .iter()
         .map(|p| (p.key.as_str(), &p.value))
         .collect();
-    
+
     assert!(
         kv_map.contains_key("general.architecture"),
         "Missing general.architecture"
@@ -47,7 +46,7 @@ fn test_parse_qwen2_5_3b_conformance() {
 #[test]
 #[ignore = "Requires conformance corpus files"]
 fn test_large_model_tensor_structure() {
-    let path = conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
+    let path = crate::tests::conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
 
     let header = parse_gguf(&path).expect("Failed to parse GGUF file");
 
@@ -69,13 +68,15 @@ fn test_large_model_tensor_structure() {
         .iter()
         .any(|t| t.name.contains("output") || t.name.contains("lm_head"));
     let has_blocks = header.tensors.iter().any(|t| t.name.contains("blk."));
-    
+
     assert!(has_embedding, "Missing token embedding tensor");
     assert!(has_lm_head, "Missing output/lm head tensor");
     assert!(has_blocks, "Missing transformer block tensors");
-    
-    eprintln!("✓ Found expected tensor groups: embedding={}, lm_head={}, blocks={}", 
-              has_embedding, has_lm_head, has_blocks);
+
+    eprintln!(
+        "✓ Found expected tensor groups: embedding={}, lm_head={}, blocks={}",
+        has_embedding, has_lm_head, has_blocks
+    );
 
     // Validate no duplicate names
     let mut seen_names = std::collections::HashSet::new();
@@ -91,7 +92,7 @@ fn test_large_model_tensor_structure() {
 #[test]
 #[ignore = "Requires conformance corpus files"]
 fn test_large_model_data_section() {
-    let path = conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
+    let path = crate::tests::conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
 
     let header = parse_gguf(&path).expect("Failed to parse GGUF file");
 
@@ -112,12 +113,16 @@ fn test_large_model_data_section() {
 #[test]
 #[ignore = "Requires conformance corpus files"]
 fn test_large_model_kv_type_consistency() {
-    let path = conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
+    let path = crate::tests::conformance_corpus_path("qwen2.5-3b-instruct-q4_k_m.gguf");
 
     let header = parse_gguf(&path).expect("Failed to parse GGUF file");
 
     // Count different value types present
-    let string_count: usize = header.kv_pairs.iter().filter(|p| matches!(p.value, GgufKvValue::String(_))).count();
+    let string_count: usize = header
+        .kv_pairs
+        .iter()
+        .filter(|p| matches!(p.value, GgufKvValue::String(_)))
+        .count();
 
     eprintln!("✓ Found {} string-valued KV pairs in large model", string_count);
     assert!(string_count >= 5, "Expected at least 5 string KV pairs");
