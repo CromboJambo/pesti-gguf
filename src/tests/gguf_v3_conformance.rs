@@ -37,7 +37,7 @@ fn test_qwen2_5_0_5b_conformance() {
     assert!(n_blocks > 0, "Block count should be positive");
 
     // Validate some specific KV pairs exist
-    let kv_map: std::collections::HashMap<&str, &GgufKvValue> = header
+    let _kv_map: std::collections::HashMap<&str, &GgufKvValue> = header
         .kv_pairs
         .iter()
         .map(|p| (p.key.as_str(), &p.value))
@@ -46,7 +46,7 @@ fn test_qwen2_5_0_5b_conformance() {
     // Check that string values are valid
     for kv in &header.kv_pairs {
         match &kv.value {
-            GgufKvValue::String(s) => {
+            GgufKvValue::String(_s) => {
                 // Validate key format (should be printable ASCII with dots)
                 assert!(
                     kv.key.chars().all(|c| c.is_ascii() && (c.is_alphanumeric() || c == '.' || c == '_')),

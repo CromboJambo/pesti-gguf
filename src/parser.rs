@@ -77,63 +77,11 @@ mod le_bytes {
         let bytes = read_u64_le(reader)?;
         Ok(bytes as i64)
     }
-
-    // Write helpers for the writer module
-    #[inline]
-    pub fn write_u8<W: std::io::Write>(writer: &mut W, val: u8) -> Result<(), std::io::Error> {
-        writer.write_all(&[val])
-    }
-
-    #[inline]
-    pub fn write_u16_le<W: std::io::Write>(writer: &mut W, val: u16) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
-
-    #[inline]
-    pub fn write_u32_le<W: std::io::Write>(writer: &mut W, val: u32) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
-
-    #[inline]
-    pub fn write_u64_le<W: std::io::Write>(writer: &mut W, val: u64) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
-
-    #[inline]
-    pub fn write_f32_le<W: std::io::Write>(writer: &mut W, val: f32) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
-
-    #[inline]
-    pub fn write_f64_le<W: std::io::Write>(writer: &mut W, val: f64) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
-
-    #[inline]
-    pub fn write_i8<W: std::io::Write>(writer: &mut W, val: i8) -> Result<(), std::io::Error> {
-        writer.write_all(&[val as u8])
-    }
-
-    #[inline]
-    pub fn write_i16_le<W: std::io::Write>(writer: &mut W, val: i16) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
-
-    #[inline]
-    pub fn write_i32_le<W: std::io::Write>(writer: &mut W, val: i32) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
-
-    #[inline]
-    pub fn write_i64_le<W: std::io::Write>(writer: &mut W, val: i64) -> Result<(), std::io::Error> {
-        writer.write_all(&val.to_le_bytes())
-    }
 }
 
 use le_bytes::{
     read_f32_le, read_f64_le, read_i16_le, read_i32_le, read_i64_le, read_i8, read_u16_le,
-    read_u32_le, read_u64_le, read_u8, write_f32_le, write_f64_le, write_i16_le, write_i32_le,
-    write_i64_le, write_i8, write_u16_le, write_u32_le, write_u64_le,
+    read_u32_le, read_u64_le, read_u8,
 };
 use std::io::{Read, Seek};
 use std::path::Path;
