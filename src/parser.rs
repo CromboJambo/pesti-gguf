@@ -1,4 +1,140 @@
-use byteorder::{LittleEndian, ReadBytesExt};
+/// Little-endian byte-order helpers for GGUF parsing.
+///
+/// GGUF is always little-endian, so we use explicit byte-reinterpretation
+/// instead of generic trait-based readers like byteorder::LittleEndian.
+mod le_bytes {
+    /// Read u8 (no endianness needed)
+    #[inline]
+    pub fn read_u8<R: std::io::Read>(reader: &mut R) -> Result<u8, std::io::Error> {
+        let mut buf = [0u8; 1];
+        reader.read_exact(&mut buf)?;
+        Ok(buf[0])
+    }
+
+    /// Read u16 LE
+    #[inline]
+    pub fn read_u16_le<R: std::io::Read>(reader: &mut R) -> Result<u16, std::io::Error> {
+        let mut buf = [0u8; 2];
+        reader.read_exact(&mut buf)?;
+        Ok(u16::from_le_bytes(buf))
+    }
+
+    /// Read u32 LE
+    #[inline]
+    pub fn read_u32_le<R: std::io::Read>(reader: &mut R) -> Result<u32, std::io::Error> {
+        let mut buf = [0u8; 4];
+        reader.read_exact(&mut buf)?;
+        Ok(u32::from_le_bytes(buf))
+    }
+
+    /// Read u64 LE
+    #[inline]
+    pub fn read_u64_le<R: std::io::Read>(reader: &mut R) -> Result<u64, std::io::Error> {
+        let mut buf = [0u8; 8];
+        reader.read_exact(&mut buf)?;
+        Ok(u64::from_le_bytes(buf))
+    }
+
+    /// Read f32 LE (via u32)
+    #[inline]
+    pub fn read_f32_le<R: std::io::Read>(reader: &mut R) -> Result<f32, std::io::Error> {
+        let bits = read_u32_le(reader)?;
+        Ok(f32::from_bits(bits))
+    }
+
+    /// Read f64 LE (via u64)
+    #[inline]
+    pub fn read_f64_le<R: std::io::Read>(reader: &mut R) -> Result<f64, std::io::Error> {
+        let bits = read_u64_le(reader)?;
+        Ok(f64::from_bits(bits))
+    }
+
+    /// Read i8 (no endianness needed)
+    #[inline]
+    pub fn read_i8<R: std::io::Read>(reader: &mut R) -> Result<i8, std::io::Error> {
+        let mut buf = [0u8; 1];
+        reader.read_exact(&mut buf)?;
+        Ok(buf[0] as i8)
+    }
+
+    /// Read i16 LE
+    #[inline]
+    pub fn read_i16_le<R: std::io::Read>(reader: &mut R) -> Result<i16, std::io::Error> {
+        let bytes = read_u16_le(reader)?;
+        Ok(bytes as i16)
+    }
+
+    /// Read i32 LE
+    #[inline]
+    pub fn read_i32_le<R: std::io::Read>(reader: &mut R) -> Result<i32, std::io::Error> {
+        let bytes = read_u32_le(reader)?;
+        Ok(bytes as i32)
+    }
+
+    /// Read i64 LE
+    #[inline]
+    pub fn read_i64_le<R: std::io::Read>(reader: &mut R) -> Result<i64, std::io::Error> {
+        let bytes = read_u64_le(reader)?;
+        Ok(bytes as i64)
+    }
+
+    // Write helpers for the writer module
+    #[inline]
+    pub fn write_u8<W: std::io::Write>(writer: &mut W, val: u8) -> Result<(), std::io::Error> {
+        writer.write_all(&[val])
+    }
+
+    #[inline]
+    pub fn write_u16_le<W: std::io::Write>(writer: &mut W, val: u16) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_u32_le<W: std::io::Write>(writer: &mut W, val: u32) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_u64_le<W: std::io::Write>(writer: &mut W, val: u64) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_f32_le<W: std::io::Write>(writer: &mut W, val: f32) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_f64_le<W: std::io::Write>(writer: &mut W, val: f64) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_i8<W: std::io::Write>(writer: &mut W, val: i8) -> Result<(), std::io::Error> {
+        writer.write_all(&[val as u8])
+    }
+
+    #[inline]
+    pub fn write_i16_le<W: std::io::Write>(writer: &mut W, val: i16) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_i32_le<W: std::io::Write>(writer: &mut W, val: i32) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_i64_le<W: std::io::Write>(writer: &mut W, val: i64) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+}
+
+use le_bytes::{
+    read_f32_le, read_f64_le, read_i16_le, read_i32_le, read_i64_le, read_i8, read_u16_le,
+    read_u32_le, read_u64_le, read_u8, write_f32_le, write_f64_le, write_i16_le, write_i32_le,
+    write_i64_le, write_i8, write_u16_le, write_u32_le, write_u64_le,
+};
 use std::io::{Read, Seek};
 use std::path::Path;
 
@@ -51,7 +187,7 @@ pub fn parse_gguf_reader<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, G
         ));
     }
 
-    let version = reader.read_u32::<LittleEndian>()?;
+    let version = read_u32_le(reader)?;
     let format = match GgufVersion::from_u32(version) {
         Some(v) => v.wire_format(),
         None => return Err(GgufError::UnsupportedVersion(version)),
@@ -59,7 +195,7 @@ pub fn parse_gguf_reader<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, G
 
     // V1 header layout differs: tensor_count(u32) before kv_count(u32)
     if version == 1 {
-        let _tensor_count = reader.read_u32::<LittleEndian>()?;
+        let _tensor_count = read_u32_le(reader)?;
         let kv_count = read_int(reader, format.header_count_width)? as usize;
         if kv_count > GGUF_MAX_COUNT {
             return Err(GgufError::InvalidMetadata(format!(
@@ -125,8 +261,8 @@ pub fn parse_gguf_reader<R: Read + Seek>(reader: &mut R) -> Result<GgufHeader, G
 /// Read a u32 or u64 from the reader based on the wire format's integer width.
 fn read_int<R: Read>(reader: &mut R, width: IntWidth) -> Result<u64, GgufError> {
     match width {
-        IntWidth::U32 => Ok(reader.read_u32::<LittleEndian>()? as u64),
-        IntWidth::U64 => Ok(reader.read_u64::<LittleEndian>()?),
+        IntWidth::U32 => Ok(read_u32_le(reader)? as u64),
+        IntWidth::U64 => Ok(read_u64_le(reader)?),
     }
 }
 
@@ -139,7 +275,7 @@ fn read_kv_pair<R: Read + Seek>(
     let key_bytes = read_bytes(reader, key_len)?;
     let key = String::from_utf8(key_bytes).map_err(GgufError::Utf8)?;
 
-    let value_type_raw = reader.read_u32::<LittleEndian>()?;
+    let value_type_raw = read_u32_le(reader)?;
     let value_type = GgufValueType::from_u32(value_type_raw)
         .ok_or(GgufError::InvalidValueType(value_type_raw))?;
 
@@ -171,41 +307,40 @@ fn read_tensor_info<R: Read + Seek>(
     let name = String::from_utf8(name_bytes).map_err(GgufError::Utf8)?;
 
     // n_dims, shape, dtype, offset are always u32/u64 across all versions
-    let n_dims = reader.read_u32::<LittleEndian>()?;
+    let n_dims = read_u32_le(reader)?;
     // Clamp to 8 dimensions (llama.cpp limit) to prevent DoS via massive allocations
     if n_dims > 8 {
         return Err(GgufError::InvalidTensor(
             "Too many tensor dimensions (max 8)".into()
         ));
     }
-    let mut shape = Vec::with_capacity(n_dims as usize);
-    for _ in 0..n_dims {
-        shape.push(reader.read_u64::<LittleEndian>()?);
-    }
-    let dtype = reader.read_u32::<LittleEndian>()?;
-    let offset = reader.read_u64::<LittleEndian>()?;
+    let shape = (0..n_dims)
+        .map(|_| read_u64_le(reader))
+        .collect::<Result<Vec<u64>, _>>()?;
+    let dtype = read_u32_le(reader)?;
+    let offset = read_u64_le(reader)?;
 
     Ok(GgufTensorInfo { name, shape, offset, dtype })
 }
 /// Read a single scalar KV value (shared across all GGUF versions).
 fn read_kv_scalar<R: Read>(reader: &mut R, value_type: GgufValueType) -> Result<GgufKvValue, GgufError> {
     match value_type {
-        GgufValueType::Int8 => Ok(GgufKvValue::Int8(reader.read_i8()?)),
-        GgufValueType::Uint16 => Ok(GgufKvValue::Uint16(reader.read_u16::<LittleEndian>()?)),
-        GgufValueType::Int16 => Ok(GgufKvValue::Int16(reader.read_i16::<LittleEndian>()?)),
-        GgufValueType::Uint32 => Ok(GgufKvValue::Uint32(reader.read_u32::<LittleEndian>()?)),
-        GgufValueType::Int32 => Ok(GgufKvValue::Int32(reader.read_i32::<LittleEndian>()?)),
-        GgufValueType::Uint64 => Ok(GgufKvValue::Uint64(reader.read_u64::<LittleEndian>()?)),
-        GgufValueType::Int64 => Ok(GgufKvValue::Int64(reader.read_i64::<LittleEndian>()?)),
-        GgufValueType::Float32 => Ok(GgufKvValue::Float32(reader.read_f32::<LittleEndian>()?)),
-        GgufValueType::Float64 => Ok(GgufKvValue::Float64(reader.read_f64::<LittleEndian>()?)),
-        GgufValueType::Bool => Ok(GgufKvValue::Bool(reader.read_u8()? != 0)),
+        GgufValueType::Int8 => Ok(GgufKvValue::Int8(read_i8(reader)?)),
+        GgufValueType::Uint16 => Ok(GgufKvValue::Uint16(read_u16_le(reader)?)),
+        GgufValueType::Int16 => Ok(GgufKvValue::Int16(read_i16_le(reader)?)),
+        GgufValueType::Uint32 => Ok(GgufKvValue::Uint32(read_u32_le(reader)?)),
+        GgufValueType::Int32 => Ok(GgufKvValue::Int32(read_i32_le(reader)?)),
+        GgufValueType::Uint64 => Ok(GgufKvValue::Uint64(read_u64_le(reader)?)),
+        GgufValueType::Int64 => Ok(GgufKvValue::Int64(read_i64_le(reader)?)),
+        GgufValueType::Float32 => Ok(GgufKvValue::Float32(read_f32_le(reader)?)),
+        GgufValueType::Float64 => Ok(GgufKvValue::Float64(read_f64_le(reader)?)),
+        GgufValueType::Bool => Ok(GgufKvValue::Bool(read_u8(reader)? != 0)),
         GgufValueType::Bfloat16 => {
-            let val = reader.read_u16::<LittleEndian>()?;
+            let val = read_u16_le(reader)?;
             Ok(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)))
         }
-        GgufValueType::Float16 => Ok(GgufKvValue::Float16(reader.read_u16::<LittleEndian>()?)),
-        GgufValueType::Uint8 => Ok(GgufKvValue::Uint8(reader.read_u8()?)),
+        GgufValueType::Float16 => Ok(GgufKvValue::Float16(read_u16_le(reader)?)),
+        GgufValueType::Uint8 => Ok(GgufKvValue::Uint8(read_u8(reader)?)),
         _ => Err(GgufError::InvalidValueType(value_type as u32)),
     }
 }
@@ -225,21 +360,21 @@ fn read_kv_array_element<R: Read>(
                 String::from_utf8(bytes).map_err(GgufError::Utf8)?,
             ))
         }
-        GgufValueType::Uint32 => Ok(GgufKvValue::Uint32(reader.read_u32::<LittleEndian>()?)),
-        GgufValueType::Int8 => Ok(GgufKvValue::Int8(reader.read_i8()?)),
-        GgufValueType::Uint16 => Ok(GgufKvValue::Uint16(reader.read_u16::<LittleEndian>()?)),
-        GgufValueType::Int16 => Ok(GgufKvValue::Int16(reader.read_i16::<LittleEndian>()?)),
-        GgufValueType::Int32 => Ok(GgufKvValue::Int32(reader.read_i32::<LittleEndian>()?)),
-        GgufValueType::Uint64 => Ok(GgufKvValue::Uint64(reader.read_u64::<LittleEndian>()?)),
-        GgufValueType::Int64 => Ok(GgufKvValue::Int64(reader.read_i64::<LittleEndian>()?)),
-        GgufValueType::Float32 => Ok(GgufKvValue::Float32(reader.read_f32::<LittleEndian>()?)),
-        GgufValueType::Bool => Ok(GgufKvValue::Bool(reader.read_u8()? != 0)),
+        GgufValueType::Uint32 => Ok(GgufKvValue::Uint32(read_u32_le(reader)?)),
+        GgufValueType::Int8 => Ok(GgufKvValue::Int8(read_i8(reader)?)),
+        GgufValueType::Uint16 => Ok(GgufKvValue::Uint16(read_u16_le(reader)?)),
+        GgufValueType::Int16 => Ok(GgufKvValue::Int16(read_i16_le(reader)?)),
+        GgufValueType::Int32 => Ok(GgufKvValue::Int32(read_i32_le(reader)?)),
+        GgufValueType::Uint64 => Ok(GgufKvValue::Uint64(read_u64_le(reader)?)),
+        GgufValueType::Int64 => Ok(GgufKvValue::Int64(read_i64_le(reader)?)),
+        GgufValueType::Float32 => Ok(GgufKvValue::Float32(read_f32_le(reader)?)),
+        GgufValueType::Bool => Ok(GgufKvValue::Bool(read_u8(reader)? != 0)),
         GgufValueType::Bfloat16 => {
-            let val = reader.read_u16::<LittleEndian>()?;
+            let val = read_u16_le(reader)?;
             Ok(GgufKvValue::Bfloat16(f32::from_bits((val as u32) << 16)))
         }
-        GgufValueType::Float16 => Ok(GgufKvValue::Float16(reader.read_u16::<LittleEndian>()?)),
-        GgufValueType::Uint8 => Ok(GgufKvValue::Uint8(reader.read_u8()?)),
+        GgufValueType::Float16 => Ok(GgufKvValue::Float16(read_u16_le(reader)?)),
+        GgufValueType::Uint8 => Ok(GgufKvValue::Uint8(read_u8(reader)?)),
         GgufValueType::Int8Array | GgufValueType::Uint8Array => {
             Err(GgufError::UnsupportedArrayElementType(elem_type_raw))
         }
@@ -263,7 +398,7 @@ fn read_kv_value_generic<R: Read + Seek>(
             ))
         }
         GgufValueType::Array => {
-            let elem_type_raw = reader.read_u32::<LittleEndian>()?;
+            let elem_type_raw = read_u32_le(reader)?;
             let elem_type = GgufValueType::from_u32(elem_type_raw)
                 .ok_or(GgufError::InvalidValueType(elem_type_raw))?;
             let elem_count = read_int(reader, array_count_width)? as usize;

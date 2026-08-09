@@ -1,4 +1,57 @@
-use byteorder::{LittleEndian, WriteBytesExt};
+/// Little-endian byte-order helpers for GGUF writing (shared with parser).
+mod le_bytes {
+    #[inline]
+    pub fn write_u8<W: std::io::Write>(writer: &mut W, val: u8) -> Result<(), std::io::Error> {
+        writer.write_all(&[val])
+    }
+
+    #[inline]
+    pub fn write_u16_le<W: std::io::Write>(writer: &mut W, val: u16) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_u32_le<W: std::io::Write>(writer: &mut W, val: u32) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_u64_le<W: std::io::Write>(writer: &mut W, val: u64) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_f32_le<W: std::io::Write>(writer: &mut W, val: f32) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_f64_le<W: std::io::Write>(writer: &mut W, val: f64) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_i8<W: std::io::Write>(writer: &mut W, val: i8) -> Result<(), std::io::Error> {
+        writer.write_all(&[val as u8])
+    }
+
+    #[inline]
+    pub fn write_i16_le<W: std::io::Write>(writer: &mut W, val: i16) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_i32_le<W: std::io::Write>(writer: &mut W, val: i32) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+
+    #[inline]
+    pub fn write_i64_le<W: std::io::Write>(writer: &mut W, val: i64) -> Result<(), std::io::Error> {
+        writer.write_all(&val.to_le_bytes())
+    }
+}
+
+use le_bytes::{write_f32_le, write_f64_le, write_i16_le, write_i32_le, write_i64_le, write_i8, write_u16_le, write_u32_le, write_u64_le, write_u8};
 use std::fs::File;
 use std::io::{BufWriter, Read, Seek, Write};
 use std::path::Path;
@@ -53,8 +106,8 @@ impl GgufWriter {
     /// Write a u32 or u64 based on the wire format's integer width.
     fn write_int(writer: &mut BufWriter<File>, val: u64, width: IntWidth) -> Result<(), GgufError> {
         match width {
-            IntWidth::U32 => writer.write_u32::<LittleEndian>(val as u32)?,
-            IntWidth::U64 => writer.write_u64::<LittleEndian>(val)?,
+            IntWidth::U32 => write_u32_le(writer, val as u32)?,
+            IntWidth::U64 => write_u64_le(writer, val)?,
         }
         Ok(())
     }
@@ -96,7 +149,7 @@ impl GgufWriter {
         writer.write_all(b"GGUF")?;
 
         // 2. Write version (u32 LE)
-        writer.write_u32::<LittleEndian>(self.version)?;
+        write_u32_le(&mut writer, self.version)?;
 
         // 3. Write tensor count and KV count (format-dependent widths)
         Self::write_int(&mut writer, self.tensors.len() as u64, format.header_count_width)?;
@@ -129,7 +182,7 @@ impl GgufWriter {
         if current_pos < data_start {
             let padding = (data_start - current_pos) as usize;
             for _ in 0..padding {
-                writer.write_u8(0)?;
+                write_u8(&mut writer, 0)?;
             }
         }
 
@@ -218,7 +271,7 @@ impl GgufWriter {
         writer.write_all(key_bytes)?;
 
         // 3. Write value type (u32 LE)
-        writer.write_u32::<LittleEndian>(kv.value_type.to_u32())?;
+        write_u32_le(writer, kv.value_type.to_u32())?;
 
         // 4. Write value based on type
         self.write_kv_value(writer, &kv.value_type, &kv.value, format)?;
@@ -249,7 +302,7 @@ impl GgufWriter {
                         .first()
                         .map(|v| v.value_type())
                         .unwrap_or(GgufValueType::Uint32);
-                    writer.write_u32::<LittleEndian>(elem_type.to_u32())?;
+                    write_u32_le(writer, elem_type.to_u32())?;
 
                     // Write element count (format-dependent width)
                     Self::write_int(writer, arr.len() as u64, format.array_count_width)?;
@@ -277,58 +330,58 @@ impl GgufWriter {
         match value_type {
             GgufValueType::Int8 => {
                 if let GgufKvValue::Int8(v) = value {
-                    writer.write_i8(*v)?;
+                    write_i8(writer, *v)?;
                 }
             }
             GgufValueType::Uint16 => {
                 if let GgufKvValue::Uint16(v) = value {
-                    writer.write_u16::<LittleEndian>(*v)?;
+                    write_u16_le(writer, *v)?;
                 }
             }
             GgufValueType::Int16 => {
                 if let GgufKvValue::Int16(v) = value {
-                    writer.write_i16::<LittleEndian>(*v)?;
+                    write_i16_le(writer, *v)?;
                 }
             }
             GgufValueType::Uint32 => {
                 if let GgufKvValue::Uint32(v) = value {
-                    writer.write_u32::<LittleEndian>(*v)?;
+                    write_u32_le(writer, *v)?;
                 }
             }
             GgufValueType::Int32 => {
                 if let GgufKvValue::Int32(v) = value {
-                    writer.write_i32::<LittleEndian>(*v)?;
+                    write_i32_le(writer, *v)?;
                 }
             }
             GgufValueType::Uint64 => {
                 if let GgufKvValue::Uint64(v) = value {
-                    writer.write_u64::<LittleEndian>(*v)?;
+                    write_u64_le(writer, *v)?;
                 }
             }
             GgufValueType::Int64 => {
                 if let GgufKvValue::Int64(v) = value {
-                    writer.write_i64::<LittleEndian>(*v)?;
+                    write_i64_le(writer, *v)?;
                 }
             }
             GgufValueType::Float32 => {
                 if let GgufKvValue::Float32(v) = value {
-                    writer.write_f32::<LittleEndian>(*v)?;
+                    write_f32_le(writer, *v)?;
                 }
             }
             GgufValueType::Float64 => {
                 if let GgufKvValue::Float64(v) = value {
-                    writer.write_f64::<LittleEndian>(*v)?;
+                    write_f64_le(writer, *v)?;
                 }
             }
             GgufValueType::Bool => {
                 if let GgufKvValue::Bool(v) = value {
-                    writer.write_u8(*v as u8)?;
+                    write_u8(writer, *v as u8)?;
                 }
             }
             // Missing scalar types - add stub implementations
             GgufValueType::Uint8 => {
                 if let GgufKvValue::Uint8(v) = value {
-                    writer.write_u8(*v)?;
+                    write_u8(writer, *v)?;
                 }
             }
             GgufValueType::Bfloat16 => {
@@ -372,18 +425,18 @@ impl GgufWriter {
         writer.write_all(name_bytes)?;
 
         // 3. Write number of dimensions (u32 LE) - same across all versions
-        writer.write_u32::<LittleEndian>(tensor.ndims())?;
+        write_u32_le(writer, tensor.ndims())?;
 
         // 4. Write shape array (n_dims * u64 LE) - same across all versions
         for dim in &tensor.shape {
-            writer.write_u64::<LittleEndian>(*dim)?;
+            write_u64_le(writer, *dim)?;
         }
 
         // 5. Write data type (u32 LE) - same across all versions
-        writer.write_u32::<LittleEndian>(tensor.dtype)?;
+        write_u32_le(writer, tensor.dtype)?;
 
         // 6. Write offset (u64 LE) - same across all versions
-        writer.write_u64::<LittleEndian>(tensor.offset)?;
+        write_u64_le(writer, tensor.offset)?;
 
         Ok(())
     }
