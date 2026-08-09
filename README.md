@@ -66,10 +66,10 @@ Tests validate against real GGUF files from the [Qwen2.5 conformance corpus](htt
 ### ⏸️ Auto-skipped (requires download)
 + `qwen2.5-3b-instruct-q4_k_m.gguf` (2.0 GB) - *tests ignored until file detected*
 
-**Download the 3B model:**  
-[📥 Qwen2.5-3B GGUF on HuggingFace](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/blob/main/qwen2.5-3b-instruct-q4_k_m.gguf)
+**Get started with a model:**  
+Download any GGUF model from [HuggingFace](https://huggingface.com/models?library=gguf) and place it in `conformance-corpus/`. The tests will automatically validate your chosen model.
 
-Place it in `conformance-corpus/` directory (relative to crate root), and the ignored tests will run automatically.
+📥 **Example**: [Qwen2.5-3B-Instruct (4K context)](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/blob/main/qwen2.5-3b-instruct-q4_k_m.gguf)
 
 ## Comparison with llama.cpp
 
