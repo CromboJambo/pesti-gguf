@@ -8,7 +8,7 @@
 
 ## What is this?
 
-A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs) model weight files (used by llama.cpp, Ollama, etc.). Written in pure Rust with just four minimal dependencies: serde, byteorder, half (for FP16 support), and thiserror (for error handling).
+A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs) model weight files (used by llama.cpp, Ollama, etc.). Written in pure Rust with just three minimal dependencies: serde, serde_json, and thiserror.
 
 ## Why use it?
 
@@ -52,22 +52,22 @@ Parse time varies by hardware and model size. The parser's performance is **quan
 + Version-aware parsing (auto-detects format)
 + Comprehensive error types (InvalidMagic, UnsupportedVersion, etc.)
 + Alignment validation (`general.alignment` KV pair)
-+ String length limits (1GB max per string)
++ String length limits (1 MiB max per string)
 - Real-file conformance testing (requires `conformance-corpus/` directory)
   - Run with: `cargo test --lib -- --ignored`
 
 ## Conformance
 
 Tested against real GGUF files from the **Qwen2.5 conformance corpus**:
-+ `qwen2.5-0.5b-instruct-q4_k_m.gguf` (468 MB)
-+ `qwen2.5-3b-instruct-q4_k_m.gguf` (2.0 GB)
++ `qwen2.5-0.5b-instruct-q4_k_m.gguf` (468 MB) - *tested*
++ `qwen2.5-3b-instruct-q4_k_m.gguf` (2.0 GB) - *requires file download, tests ignored until present*
 
 ## Comparison with llama.cpp
 
-| Feature        | pesti-gguf              | llama.cpp          |
+|| Feature        | pesti-gguf              | llama.cpp          |
 |----------------|-------------------------|--------------------|
 | Language       | Pure Rust               | C++                |
-| Dependencies   | 4 crates: serde, byteorder, half, thiserror | CUDA libs, OpenBLAS |
+| Dependencies   | 3 crates: serde, serde_json, thiserror | CUDA libs, OpenBLAS |
 | Memory Safety  | Compile-time guarantees | Runtime checks     |
 | FFI Required   | No                      | N/A (native)       |
 | WASM Ready     | Yes                     | Requires Emscripten|
