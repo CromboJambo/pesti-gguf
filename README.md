@@ -64,7 +64,7 @@ Tested against real GGUF files from the **Qwen2.5 conformance corpus**:
 
 ## Comparison with llama.cpp
 
-|| Feature        | pesti-gguf              | llama.cpp          |
+| Feature        | pesti-gguf              | llama.cpp          |
 |----------------|-------------------------|--------------------|
 | Language       | Pure Rust               | C++                |
 | Dependencies   | 3 crates: serde, serde_json, thiserror | CUDA libs, OpenBLAS |
