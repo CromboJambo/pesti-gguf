@@ -37,15 +37,6 @@ fn main() -> Result<(), pesti_gguf::GgufError> {
     Ok(())
 }
 ```
-
-## Performance Characteristics
-
-Parse time varies by hardware and model size. The parser's performance is **quantization-agnostic** because it only reads metadata, not weight data. For comparison:
-- llama.cpp metadata extraction: ~15ms (estimated from reference implementation)
-- Python gguf library: ~180ms (pure Python, no optimization)
-
-*Note: Actual performance depends on CPU cache state, file alignment, and system load.*
-
 ## Features
 
 + Full v1/v2/v3 GGUF format support
