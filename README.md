@@ -56,11 +56,20 @@ Parse time varies by hardware and model size. The parser's performance is **quan
 - Real-file conformance testing (requires `conformance-corpus/` directory)
   - Run with: `cargo test --lib -- --ignored`
 
-## Conformance
+## Conformance Testing
 
-Tested against real GGUF files from the **Qwen2.5 conformance corpus**:
-+ `qwen2.5-0.5b-instruct-q4_k_m.gguf` (468 MB) - *tested*
-+ `qwen2.5-3b-instruct-q4_k_m.gguf` (2.0 GB) - *requires file download, tests ignored until present*
+Tests validate against real GGUF files from the [Qwen2.5 conformance corpus](https://huggingface.co/Qwen):
+
+### ✅ Tested (files present in repo)
++ `qwen2.5-0.5b-instruct-q4_k_m.gguf` (468 MB) - *runs automatically*
+
+### ⏸️ Auto-skipped (requires download)
++ `qwen2.5-3b-instruct-q4_k_m.gguf` (2.0 GB) - *tests ignored until file detected*
+
+**Download the 3B model:**  
+[📥 Qwen2.5-3B GGUF on HuggingFace](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/blob/main/qwen2.5-3b-instruct-q4_k_m.gguf)
+
+Place it in `conformance-corpus/` directory (relative to crate root), and the ignored tests will run automatically.
 
 ## Comparison with llama.cpp
 
