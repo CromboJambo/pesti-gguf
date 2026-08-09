@@ -2,17 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use pesti_gguf::parse_gguf;
 use std::path::Path;
 
-const MODEL_PATH_3B: &str = "conformance-corpus/qwen2.5-3b-instruct-q4_k_m.gguf";
 const MODEL_PATH_05B: &str = "conformance-corpus/qwen2.5-0.5b-instruct-q4_k_m.gguf";
-
-fn bench_pesti_gguf_3b(c: &mut Criterion) {
-    // Skip 3B benchmark - requires real model file (2.0 GB)
-    // c.bench_function("pesti_gguf_parse_3b", |b| {
-    //     b.iter(|| {
-    //         parse_gguf(Path::new(MODEL_PATH_3B)).expect("Failed to parse 3B model");
-    //     });
-    // });
-}
 
 fn bench_pesti_gguf_05b(c: &mut Criterion) {
     c.bench_function("pesti_gguf_parse_0.5b", |b| {
@@ -67,7 +57,6 @@ fn bench_pesti_gguf_dtype_detection(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    bench_pesti_gguf_3b,
     bench_pesti_gguf_05b,
     bench_pesti_gguf_kv_extraction,
     bench_pesti_gguf_tensor_shapes,
