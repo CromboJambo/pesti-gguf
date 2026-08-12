@@ -1,6 +1,7 @@
 pub mod error;
-pub mod types;
+pub mod format_inference;
 pub mod parser;
+pub mod types;
 pub mod writer;
 
 #[cfg(test)]
