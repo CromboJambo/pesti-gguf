@@ -4,8 +4,6 @@
 [![Docs.rs](https://docs.rs/pesti-gguf/badge.svg)](https://docs.rs/pesti-gguf)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 
-**A parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs) model weight files (the file type used by llama.cpp, Ollama, etc.). Written in pure Rust with just three minimal dependencies: serde, serde_json, and thiserror.**
-
 ## What is this?
 
 A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs) model weight files (the file type used by llama.cpp, Ollama, etc.). Written in pure Rust with just three minimal dependencies: serde, serde_json, and thiserror.
