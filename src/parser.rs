@@ -435,9 +435,7 @@ pub fn compute_data_section_start(
             let remainder = data_section % alignment;
             if remainder != 0 {
                 // Saturate on overflow instead of wrapping
-                data_section = data_section
-                    .checked_add(alignment - remainder)
-                    .unwrap_or(u64::MAX);
+                data_section = data_section.saturating_add(alignment - remainder);
             }
         }
     }

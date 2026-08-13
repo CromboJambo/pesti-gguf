@@ -1,7 +1,7 @@
-/// Format inference engine for pesti-gguf
-///
-/// Detects actual quantization format from raw GGUF tensor data,
-/// validates metadata consistency, and provides warnings for suspicious assignments.
+//! Format inference engine for pesti-gguf
+//!
+//! Detects actual quantization format from raw GGUF tensor data,
+//! validates metadata consistency, and provides warnings for suspicious assignments.
 
 use crate::error::GgufError;
 use crate::types::GgufDtype;
@@ -68,7 +68,7 @@ pub enum Warning {
 /// Q5_K_M  1.0625  32      34     5-bit hybrid
 /// Q6_K    1.0     32      40     6-bit quantization
 /// Q8_0    1.0     32      34     8-bit, 2B scale
-
+///
 /// Format specification table
 const FORMAT_SPECS: [(GgufDtype, f32, usize, usize); 8] = [
     (GgufDtype::Q4_0, 0.5, 32, 16),
@@ -113,7 +113,7 @@ pub fn infer_tensor_format(
         }
 
         // Calculate expected data size for this format
-        let num_blocks = (claimed_elements + elements_per_block - 1) / elements_per_block;
+        let num_blocks = claimed_elements.div_ceil(elements_per_block);
         let expected_size = num_blocks * bytes_per_block;
 
         // Calculate confidence based on size match

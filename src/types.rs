@@ -568,31 +568,31 @@ impl GgufTensorInfo {
             GgufDtype::Q4K => {
                 let full_blocks = n / 256;
                 let remaining = n % 256;
-                Ok((full_blocks * 144 + if remaining > 0 { remaining / 2 + 16 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q4K size overflow".to_string()))?)
+                Ok(full_blocks * 144 + if remaining > 0 { remaining / 2 + 16 } else { 0 })
             }
             GgufDtype::Q5K => {
                 let full_blocks = n / 256;
                 let remaining = n % 256;
-                Ok((full_blocks * 176 + if remaining > 0 { remaining / 2 + remaining / 8 + 16 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q5K size overflow".to_string()))?)
+                Ok(full_blocks * 176 + if remaining > 0 { remaining / 2 + remaining / 8 + 16 } else { 0 })
             }
             GgufDtype::Q6K => {
                 let full_blocks = n / 256;
                 let remaining = n % 256;
-                Ok((full_blocks * 210 + if remaining > 0 { remaining / 16 + 3 * remaining / 4 + 2 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q6K size overflow".to_string()))?)
+                Ok(full_blocks * 210 + if remaining > 0 { remaining / 16 + 3 * remaining / 4 + 2 } else { 0 })
             }
             GgufDtype::Q8K => {
                 let full_blocks = n / 256;
                 let remaining = n % 256;
-                Ok((full_blocks * 292 + if remaining > 0 { remaining + remaining / 16 * 2 + 4 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q8K size overflow".to_string()))?)
+                Ok(full_blocks * 292 + if remaining > 0 { remaining + remaining / 16 * 2 + 4 } else { 0 })
             }
             GgufDtype::Q1K => {
                 let full_blocks = n / 256;
                 let remaining = n % 256;
-                Ok((full_blocks * 64 + if remaining > 0 { remaining / 8 + remaining / 64 + 96 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q1K size overflow".to_string()))?)
+                Ok(full_blocks * 64 + if remaining > 0 { remaining / 8 + remaining / 64 + 96 } else { 0 })
             }
-            GgufDtype::Q4K_M => Ok((n / 256 * 144 + if n % 256 > 0 { (n % 256) / 2 + 16 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q4K_M size overflow".to_string()))?),
-            GgufDtype::Q5K_M => Ok((n / 256 * 176 + if n % 256 > 0 { (n % 256) / 2 + (n % 256) / 8 + 16 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q5K_M size overflow".to_string()))?),
-            GgufDtype::Q8K_M => Ok((n / 256 * 292 + if n % 256 > 0 { (n % 256) + (n % 256) / 16 * 2 + 4 } else { 0 }).try_into().map_err(|_| GgufError::InvalidTensor("Q8K_M size overflow".to_string()))?),
+            GgufDtype::Q4K_M => Ok(n / 256 * 144 + if !n.is_multiple_of(256) { (n % 256) / 2 + 16 } else { 0 }),
+            GgufDtype::Q5K_M => Ok(n / 256 * 176 + if !n.is_multiple_of(256) { (n % 256) / 2 + (n % 256) / 8 + 16 } else { 0 }),
+            GgufDtype::Q8K_M => Ok(n / 256 * 292 + if !n.is_multiple_of(256) { (n % 256) + (n % 256) / 16 * 2 + 4 } else { 0 }),
             GgufDtype::Q2K_S | GgufDtype::Q3K_S | GgufDtype::Q4K_S | GgufDtype::Q5K_S | GgufDtype::Q6K_S | GgufDtype::Q2K_M => Ok(n / 4 + 24),
             GgufDtype::I8 => Ok(n),
             GgufDtype::I16 => Ok(n.checked_mul(2).ok_or_else(|| GgufError::InvalidTensor("I16 size overflow".to_string()))?),
