@@ -2,45 +2,55 @@
 
 use std::path::Path;
 
-/// Helper to get the path to a conformance corpus file relative to the workspace root.
-/// 
-/// This avoids hardcoding `/home/crombo/projects/llm-workspace` and makes tests portable.
+/// Helper to get the path to a conformance corpus file.
+///
+/// The corpus is a sibling of the `pesti` project (`../pesti/conformance-corpus`
+/// relative to this crate). We probe a list of candidate locations and return
+/// the first that actually contains the requested file, so tests run against
+/// the real corpus when present and fail with a clear message when absent.
 pub fn conformance_corpus_path(filename: &str) -> std::path::PathBuf {
-    // Start from CARGO_MANIFEST_DIR (pesti-gguf crate directory)
     let manifest_dir = std::env!("CARGO_MANIFEST_DIR");
-    
-    // Navigate up to find conformance-corpus relative to crate location
-    // Try common patterns: ../conformance-corpus, ../../conformance-corpus, ../../../conformance-corpus
-    let path = Path::new(manifest_dir);
-    
-    // Try 3 levels up (most common for standalone crates)
-    if let Some(parent) = path.parent() {
-        let corpus_path = parent.join("conformance-corpus").join(filename);
-        if corpus_path.exists() {
-            return corpus_path;
+    let crate_dir = Path::new(manifest_dir);
+
+    // Candidate corpus roots, most-specific first.
+    let candidates: Vec<std::path::PathBuf> = vec![
+        // Sibling project layout: <projects>/pesti/conformance-corpus
+        crate_dir
+            .parent()
+            .map(|p| p.join("pesti").join("conformance-corpus"))
+            .unwrap_or_default(),
+        // Direct parent: <parent>/conformance-corpus
+        crate_dir
+            .parent()
+            .map(|p| p.join("conformance-corpus"))
+            .unwrap_or_default(),
+        // Two levels up
+        crate_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.join("conformance-corpus"))
+            .unwrap_or_default(),
+        // Three levels up
+        crate_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+            .map(|p| p.join("conformance-corpus"))
+            .unwrap_or_default(),
+    ];
+
+    for dir in &candidates {
+        let full = dir.join(filename);
+        if full.exists() {
+            return full;
         }
     }
-    
-    // Try 2 levels up
-    if let Some(grandparent) = path.parent().and_then(|p| p.parent()) {
-        let corpus_path = grandparent.join("conformance-corpus").join(filename);
-        if corpus_path.exists() {
-            return corpus_path;
-        }
-    }
-    
-    // Try 1 level up
-    if let Some(great_grandparent) = path.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
-        let corpus_path = great_grandparent.join("conformance-corpus").join(filename);
-        if corpus_path.exists() {
-            return corpus_path;
-        }
-    }
-    
-    // Fallback: return path relative to manifest dir (will fail gracefully with error message)
-    Path::new(manifest_dir)
-        .parent()
-        .and_then(|p| p.parent())
-        .map(|p| p.join("conformance-corpus").join(filename))
-        .expect("Failed to compute conformance corpus path - corpus not found in common locations")
+
+    // None found: return the primary candidate so the error message shows the
+    // expected location (the caller's `.expect`/IO error will surface it).
+    candidates
+        .into_iter()
+        .next()
+        .map(|d| d.join(filename))
+        .unwrap_or_else(|| crate_dir.join("conformance-corpus").join(filename))
 }
