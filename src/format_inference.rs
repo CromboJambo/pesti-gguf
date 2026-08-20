@@ -56,29 +56,28 @@ pub enum Warning {
     },
 }
 
-/// Known format specifications (from runner_lesson.md)
+/// Known format specifications (verified against llama.cpp's `ggml_type_traits`)
 ///
 /// Format  BPE*    E/PB**  B/PB*  Notes
 /// ──────  ──────  ──────  ─────  ────────────────────
-/// Q4_0    0.5     32      16     No scales per block
-/// Q4_K    0.5625  16      9      Scales + h[2]
-/// Q4_K_M  1.6875  32      54     d + h[4] + qs
-/// Q5_0    0.625   32      20     5-bit without scales
-/// Q5_K    0.75    16      12     5-bit with scales
-/// Q5_K_M  1.0625  32      34     5-bit hybrid
-/// Q6_K    1.0     32      40     6-bit quantization
-/// Q8_0    1.0     32      34     8-bit, 2B scale
+/// Q4_0    0.5625  32      18     16B qs + 2B d
+/// Q4_K    0.5625  256     144    K-quant superblock
+/// Q5_0    0.6875  32      22     16B qs + 8B qh + 2B d
+/// Q5_K    0.6875  256     176    K-quant superblock
+/// Q6_K    0.8203  256     210    K-quant superblock
+/// Q8_0    1.0625  32      34     32B qs + 2B d
+///
+/// ** BPE = bytes per element (B/PB ÷ E/PB)
+/// ** E/PB = elements per block, B/PB = bytes per block
 ///
 /// Format specification table
-const FORMAT_SPECS: [(GgufDtype, f32, usize, usize); 8] = [
-    (GgufDtype::Q4_0, 0.5, 32, 16),
-    (GgufDtype::Q4K, 0.5625, 16, 9),
-    (GgufDtype::Q4K_M, 1.6875, 32, 54),
-    (GgufDtype::Q5_0, 0.625, 32, 20),
-    (GgufDtype::Q5K, 0.75, 16, 12),
-    (GgufDtype::Q5K_M, 1.0625, 32, 34),
-    (GgufDtype::Q6K, 1.0, 32, 40),
-    (GgufDtype::Q8_0, 1.0, 32, 34),
+const FORMAT_SPECS: [(GgufDtype, f32, usize, usize); 6] = [
+    (GgufDtype::Q4_0, 0.5625, 32, 18),
+    (GgufDtype::Q4_K, 0.5625, 256, 144),
+    (GgufDtype::Q5_0, 0.6875, 32, 22),
+    (GgufDtype::Q5_K, 0.6875, 256, 176),
+    (GgufDtype::Q6_K, 0.8203125, 256, 210),
+    (GgufDtype::Q8_0, 1.0625, 32, 34),
 ];
 
 /// Infer actual quantization format from GGUF tensor data
@@ -190,7 +189,7 @@ pub fn validate_tensor_metadata(
     // Check for suspicious embedding/output layer formats
     if is_suspicious_layer(name) {
         // Embedding layers should typically be F32 or F16, not quantized
-        if dtype.is_quantized() && !matches!(dtype, GgufDtype::Q4_0 | GgufDtype::Q4K_M) {
+        if dtype.is_quantized() && !matches!(dtype, GgufDtype::Q4_0 | GgufDtype::Q4_K) {
             warnings.push(Warning::SuspiciousEmbeddingFormat {
                 tensor_name: name.to_string(),
                 suggested: GgufDtype::F16,
@@ -223,41 +222,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_q4_k_m_correct() {
-        // Q4_K_M: 32 elements, 54 bytes (1 block)
-        let raw_data = vec![0u8; 54];
-        let inferred = infer_tensor_format(GgufDtype::Q4K_M, 32, &raw_data).unwrap();
+    fn test_q4_k_correct() {
+        // Q4_K: 256 elements, 144 bytes (1 superblock).
+        // Note: Q4_0 shares the same bytes-per-element (0.5625), so for 256
+        // elements both predict exactly 144 bytes — a genuine tie. Q4_K must be
+        // a top-confidence candidate, not necessarily the unique top.
+        let raw_data = vec![0u8; 144];
+        let inferred = infer_tensor_format(GgufDtype::Q4_K, 256, &raw_data).unwrap();
 
         assert!(!inferred.is_empty());
-        assert_eq!(inferred[0].dtype, GgufDtype::Q4K_M);
-        assert!(inferred[0].confidence > 0.95);
+        let q4k = inferred.iter().find(|f| f.dtype == GgufDtype::Q4_K).unwrap();
+        assert!(q4k.confidence > 0.95);
     }
 
     #[test]
-    fn test_q4_0_data_claimed_as_q4_k_m() {
-        // Q4_0: 32 elements, 16 bytes (1 block)
-        let raw_data = vec![0u8; 16];
-        let inferred = infer_tensor_format(GgufDtype::Q4K_M, 32, &raw_data).unwrap();
+    fn test_q4_0_data_claimed_as_q4_k() {
+        // Q4_0: 32 elements, 18 bytes (1 block)
+        let raw_data = vec![0u8; 18];
+        let inferred = infer_tensor_format(GgufDtype::Q4_K, 32, &raw_data).unwrap();
 
         assert!(inferred.iter().any(|f| f.dtype == GgufDtype::Q4_0));
     }
 
     #[test]
     fn test_token_embd_mismatch() {
-        // Simulate llama3.1-8b-q4_k_m.gguf token_embd.weight
-        // Claims Q4_K_M but data size matches Q5_K (BPE=0.75)
-        let raw_data = vec![0u8; 295_501_824]; // Matches Q5_K for 394M elements
-        let inferred = infer_tensor_format(GgufDtype::Q4K_M, 394_002_432, &raw_data).unwrap();
+        // Simulate a tensor that claims Q4_K but whose data size matches Q5_K.
+        // 256 elements: Q4_K stores 144 B, Q5_K stores 176 B.
+        let raw_data = vec![0u8; 176];
+        let inferred = infer_tensor_format(GgufDtype::Q4_K, 256, &raw_data).unwrap();
 
-        // Should detect Q5_K format (BPE=0.75) vs claimed Q4_K_M (BPE=1.6875)
-        assert!(inferred.iter().any(|f| f.dtype == GgufDtype::Q5K));
+        // Should detect Q5_K format (BPE=0.6875) vs claimed Q4_K (BPE=0.5625)
+        assert!(inferred.iter().any(|f| f.dtype == GgufDtype::Q5_K));
     }
 
     #[test]
     fn test_validate_dtype_mismatch() {
-        // Create a tensor that claims Q4_K_M but is actually Q4_0 sized
-        let raw_data = vec![0u8; 16]; // Q4_0 size for 32 elements
-        let warnings = validate_tensor_metadata("test_tensor", GgufDtype::Q4K_M, &[32], &raw_data).unwrap();
+        // Create a tensor that claims Q4_K but is actually Q4_0 sized
+        let raw_data = vec![0u8; 18]; // Q4_0 size for 32 elements
+        let warnings =
+            validate_tensor_metadata("test_tensor", GgufDtype::Q4_K, &[32], &raw_data).unwrap();
 
         assert!(!warnings.is_empty());
         match &warnings[0] {
@@ -276,9 +279,10 @@ mod tests {
     #[test]
     fn test_suspicious_embedding() {
         // Embedding layer with unusual quantization
-        let raw_data = vec![0u8; 128]; // F32 size for 32 elements
-        let warnings = validate_tensor_metadata("token_embd.weight", GgufDtype::Q5K, &[32], &raw_data)
-            .unwrap();
+        let raw_data = vec![0u8; 128];
+        let warnings =
+            validate_tensor_metadata("token_embd.weight", GgufDtype::Q5_K, &[32], &raw_data)
+                .unwrap();
 
         assert!(warnings.iter().any(|w| matches!(
             w,
@@ -291,33 +295,33 @@ mod tests {
 
     #[test]
     fn test_empty_data() {
-        let inferred = infer_tensor_format(GgufDtype::Q4K_M, 32, &[]).unwrap();
+        let inferred = infer_tensor_format(GgufDtype::Q4_K, 32, &[]).unwrap();
         assert!(inferred.is_empty());
 
-        let warnings = validate_tensor_metadata("test", GgufDtype::Q4K_M, &[32], &[]).unwrap();
+        let warnings = validate_tensor_metadata("test", GgufDtype::Q4_K, &[32], &[]).unwrap();
         assert!(warnings.is_empty());
     }
 
     #[test]
     fn test_q5_k_format() {
-        // Q5_K: 16 elements, 12 bytes (1 block)
-        let raw_data = vec![0u8; 12];
-        let inferred = infer_tensor_format(GgufDtype::Q5K, 16, &raw_data).unwrap();
+        // Q5_K: 256 elements, 176 bytes (1 superblock).
+        // Note: Q5_0 shares the same bytes-per-element (0.6875), so for 256
+        // elements both predict exactly 176 bytes — a genuine tie.
+        let raw_data = vec![0u8; 176];
+        let inferred = infer_tensor_format(GgufDtype::Q5_K, 256, &raw_data).unwrap();
 
         assert!(!inferred.is_empty());
-        assert_eq!(inferred[0].dtype, GgufDtype::Q5K);
-        assert!(inferred[0].confidence > 0.95);
+        let q5k = inferred.iter().find(|f| f.dtype == GgufDtype::Q5_K).unwrap();
+        assert!(q5k.confidence > 0.95);
     }
 
     #[test]
     fn test_q8_0_format() {
         // Q8_0: 32 elements, 34 bytes (1 block with 2B scale)
-        // Note: Same size as Q5K_M, so both will be returned as candidates
         let raw_data = vec![0u8; 34];
         let inferred = infer_tensor_format(GgufDtype::Q8_0, 32, &raw_data).unwrap();
 
         assert!(!inferred.is_empty());
-        // Q8_0 should be among the top candidates (may share size with Q5K_M)
         assert!(inferred.iter().any(|f| f.dtype == GgufDtype::Q8_0));
         assert!(inferred[0].confidence > 0.95);
     }
