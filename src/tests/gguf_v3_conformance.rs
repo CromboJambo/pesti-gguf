@@ -55,8 +55,10 @@ fn test_qwen2_5_0_5b_conformance() {
                 );
             }
             GgufKvValue::Bool(v) => {
-                // Boolean values should be true or false
-                assert!(*v, "Boolean value should be valid");
+                // A bool is valid whether true or false (e.g. Qwen2.5 sets
+                // tokenizer.ggml.add_bos_token = false). The parser already
+                // proved the wire value decoded as a bool; just record it.
+                eprintln!("✓ Bool KV pair: {} = {v}", kv.key);
             }
             GgufKvValue::Array(_) => {
                 // Arrays are present (e.g., rope.scaling)
