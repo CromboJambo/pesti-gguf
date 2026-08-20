@@ -4,21 +4,11 @@
 [![Docs.rs](https://docs.rs/pesti-gguf/badge.svg)](https://docs.rs/pesti-gguf)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL%203.0-blue.svg)](LICENSE)
 
-## What is this?
+A parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs) model weight files (the file type used by llama.cpp, Ollama, and others). Written in pure Rust with three dependencies: serde, serde_json, and thiserror.
 
-A production-ready parser for [GGUF](https://github.com/ggml-org/llama.cpp/blob/master/docs) model weight files (the file type used by llama.cpp, Ollama, etc.). Written in pure Rust with just three minimal dependencies: serde, serde_json, and thiserror.
+GGUF files from different quantization tools carry inconsistent metadata: a tensor can claim one dtype while its data is laid out differently. This crate exposes the raw header and tensor data, and provides a format-inference module for detecting the actual quantization from stored byte sizes.
 
-**The honest truth**: GGUF files from various quantization tools have **inconsistent metadata**. Tensors claim one dtype (e.g., Q4_K_M) but store data in another format (e.g., Q4_0). Every consumer needs fallback logic — pesti-gguf provides it by default.
-
-## Why use it?
-
-- **Memory safety**: No buffer overflows, no undefined behavior
-- **Zero FFI overhead**: Pure Rust, no C++ bindings needed  
-- **Type-safe**: Structured error handling instead of panic-prone Option chains
-- **WASM-ready**: Can run in browsers without C++ WASM overhead
-- **Format inference**: Detects actual quantization from raw data size (see [Inference Engine](#format-inference-engine))
-
-## Quick Start
+## Quick start
 
 ```bash
 cargo add pesti-gguf
@@ -30,30 +20,35 @@ use std::path::Path;
 
 fn main() -> Result<(), pesti_gguf::GgufError> {
     let header = parse_gguf(Path::new("model.gguf"))?;
-    
+
     println!("Version: {}", header.version);
     println!("KV pairs: {}", header.kv_pairs.len());
     println!("Tensors: {}", header.tensors.len());
-    
+
     Ok(())
 }
 ```
 
 ## Features
 
-+ Full v1/v2/v3 GGUF format support
-+ Version-aware parsing (auto-detects format)
-+ Comprehensive error types (InvalidMagic, UnsupportedVersion, etc.)
-+ Alignment validation (`general.alignment` KV pair)
-+ String length limits (1 MiB max per string)
-+ **Format inference engine** for detecting actual quantization from data size
+- v1/v2/v3 GGUF format support with version-aware parsing
+- Structured error types (`GgufError`: `InvalidMagic`, `UnsupportedVersion`, etc.)
+- Alignment validation from the `general.alignment` KV pair
+- Length limits on metadata keys and tensor names (1 MiB max)
+- `stored_size()` per tensor, mirroring ggml's `ggml_row_size`
+- `extract_tensor_bytes*` helpers to slice a tensor's data out of a file
+- Format-inference module for detecting the actual quantization from data size
 
-## Format Inference Engine
+## Dtype coverage
 
-GGUF files often have metadata that doesn't match the actual stored data. The `format_inference` module provides tools to detect the real format:
+`GgufDtype` maps raw GGML type IDs to the variants in llama.cpp's `ggml_type` enum. Removed or absent IDs (4, 5, 31, 32, 33, 36, 37, 38) resolve to `Unknown`. `stored_size()` computes `type_size * ne / blck_size` and requires the element count to be a multiple of the block size, matching ggml's behavior.
+
+## Format inference
+
+Some GGUF files have metadata that does not match the stored data. The `format_inference` module estimates the real format from a tensor's byte size:
 
 ```rust
-use pesti_gguf::{parse_gguf, format_inference::{infer_tensor_format, GgufDtype}};
+use pesti_gguf::{parse_gguf, format_inference::infer_tensor_format, GgufDtype};
 use std::path::Path;
 
 let header = parse_gguf(Path::new("model.gguf"))?;
@@ -61,68 +56,53 @@ let header = parse_gguf(Path::new("model.gguf"))?;
 for tensor in &header.tensors {
     let n_elements = tensor.element_count() as usize;
     let raw_data = /* extract from file */;
-    
+
     let inferred = infer_tensor_format(
         GgufDtype::from_u32(tensor.dtype),
         n_elements,
         &raw_data,
     )?;
-    
+
     for hint in &inferred {
-        println!("Possible format: {} (confidence: {:.2})", 
+        println!("Possible format: {} (confidence: {:.2})",
             hint.dtype, hint.confidence);
     }
 }
 ```
 
-**Key behaviors**:
-- Returns multiple candidates sorted by confidence (0.0–1.0)
-- Supports Q4_0, Q4K, Q4K_M, Q5_0, Q5K, Q5K_M, Q6K, Q8_0
-- Confidence based on size match quality (exact match = 1.0)
-- Warnings for suspicious layer formats (embeddings/output with unusual quantization)
+- Returns multiple candidates sorted by confidence (0.0-1.0)
+- Block sizes verified against llama.cpp's `ggml_type_traits`
+- Currently covers Q4_0, Q4_K, Q5_0, Q5_K, Q6_K, Q8_0
+- `validate_tensor_metadata()` flags dtype/size mismatches and suspicious layer formats
 
-## Conformance Testing
+## Conformance testing
 
-Tests validate against real GGUF files from the [Qwen2.5 conformance corpus](https://huggingface.co/Qwen):
+Tests validate the parser against real GGUF files in a `conformance-corpus` directory (a sibling of the `pesti` project, or a parent directory). The corpus path is resolved by probing a list of candidate locations.
 
-### ✅ Tested (files present in repo)
-+ `qwen2.5-0.5b-instruct-q4_k_m.gguf` (468 MB) - *runs automatically*
+The corpus-wide test checks that, for every real file, `data_section_start` plus the sum of each tensor's alignment-padded `stored_size()` reconstructs the data section with a zero-byte delta. This is the end-to-end guard against wrong dtype IDs, block sizes, or header sizes.
 
-### ⏸️ Auto-skipped (requires download)
-+ `qwen2.5-3b-instruct-q4_k_m.gguf` (2.0 GB) - *tests ignored until file detected*
+Because the corpus files are large (up to 2 GB), the corpus tests are `#[ignore]`d by default. Run them with:
 
-**Get started with a model:**  
-Download any GGUF model from [HuggingFace](https://huggingface.com/models?library=gguf) and place it in `conformance-corpus/`. The tests will automatically validate your chosen model.
+```bash
+cargo test -- --ignored corpus
+```
 
-📥 **Example**: [Qwen2.5-3B-Instruct (4K context)](https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/blob/main/qwen2.5-3b-instruct-q4_k_m.gguf)
+To add a model, download any GGUF file from [HuggingFace](https://huggingface.com/models?library=gguf) and place it in `conformance-corpus/`.
 
 ## Comparison with llama.cpp
 
-| Feature        | pesti-gguf              | llama.cpp          |
-|----------------|-------------------------|--------------------|
-| Language       | Pure Rust               | C++                |
-| Dependencies   | 3 crates: serde, serde_json, thiserror | CUDA libs, OpenBLAS |
-| Memory Safety  | Compile-time guarantees | Runtime checks     |
-| FFI Required   | No                      | N/A (native)       |
-| WASM Ready     | Yes                     | Requires Emscripten|
-
-## The Entropy Problem: Headers vs Data Shape
-
-Here's the uncomfortable truth about GGUF parsing in Rust:
-
-**GGUF headers lie**. They claim tensor dtypes that don't match the actual stored data. This isn't a bug — it's a feature of how quantization tools work. Some exporters write dtype metadata before knowing the final format; others use fallback logic that breaks type consistency.
-
-In C++, you can read raw bytes and "just work" with them. In Rust, the compiler demands you **bake the entropy decision into the code**. Either:
-1. Trust the header (and crash when dequantization fails)
-2. Add fallback logic for every possible dtype combination
-3. Infer the real format from data size (what pesti-gguf does)
-
-There's no escaping it — Rust makes you confront the mismatch between metadata and reality. The inference engine is our answer: detect the actual format, not the claimed one.
+| Feature       | pesti-gguf                              | llama.cpp          |
+|---------------|-----------------------------------------|--------------------|
+| Language      | Pure Rust                               | C++                |
+| Dependencies  | serde, serde_json, thiserror            | CUDA libs, OpenBLAS |
+| Memory safety | Compile-time guarantees                 | Runtime checks     |
+| FFI required  | No                                      | N/A (native)       |
+| WASM ready    | Yes                                     | Requires Emscripten |
 
 ## License
 
-Dual-licensed: **AGPL-3.0** or **Apache-2.0**
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
 
 ---
 
-*Built by [@crombojambo](https://github.com/crombojambo) for the Rust LLM ecosystem — where we admit GGUF files are messy and build tools that work anyway.*
+Maintained by [@crombojambo](https://github.com/crombojambo).
