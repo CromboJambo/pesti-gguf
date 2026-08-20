@@ -6,6 +6,7 @@ pub mod writer;
 
 #[cfg(test)]
 pub mod tests {
+    pub mod corpus_conformance;
     pub mod defensive_tests;
     pub mod gguf_v3_conformance;
     pub mod large_model_conformance;
