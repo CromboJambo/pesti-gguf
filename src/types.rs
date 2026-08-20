@@ -184,11 +184,12 @@ impl GgufKvValue {
                         return arr.iter().map(|v| match v {
                             Self::String(s) => str_len_bytes + s.len(),
                             _ => 0,
-                        }).sum::<usize>() + 1 + 8;
+                        }).sum::<usize>() + 4 + 8;
                     }
                     _ => 4,
                 };
-                1 + 8 + arr.len() * elem_size
+                // Array wire format: elem_type (u32) + count (u64) + elements.
+                4 + 8 + arr.len() * elem_size
             }
         }
     }
@@ -364,38 +365,61 @@ impl GgufKvPair {
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GgufDtype {
-    F32, F16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q2K, Q3K, Q4K, Q5K, Q6K, Q8K,
-    I8, I16, I32, I64, F64, BF16, Q1K, Q4K_M, Q5K_M, Q6K_S, Q8K_M, Q2K_S, Q3K_S, Q4K_S, Q5K_S, Q2K_M,
-    IQ2_XXS, IQ2_XS, IQ3_XXS, IQ1_S, Q4_0_4_4, Q4_0_4_8, Q4_0_8_8, TQ1_0, TQ2_0,
-    IQ4NL_4_4, IQ4NL_4_8, IQ4NL_8_8, MXFP4, NVFP4, Q1_0, Q2_0, Unknown(u32),
+    F32, F16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, Q8_K,
+    IQ2_XXS, IQ2_XS, IQ3_XXS, IQ1_S, IQ4_NL, IQ3_S, IQ2_S, IQ4_XS,
+    I8, I16, I32, I64, F64, IQ1_M, BF16, TQ1_0, TQ2_0, MXFP4, NVFP4, Q1_0, Q2_0,
+    Unknown(u32),
 }
 
 impl GgufDtype {
+    /// Map a raw GGML type id to a variant.
+    ///
+    /// IDs are kept in lockstep with llama.cpp's `enum ggml_type` in `ggml.h`
+    /// (authoritative). IDs 4, 5, 31, 32, 33, 36, 37, 38 were removed from
+    /// ggml and have no variant; they resolve to `Unknown`.
     pub const fn from_u32(v: u32) -> Self {
-        // IDs 0-42 follow official ggml.h / GGUF conventions.
-        // IDs 43+ are pesti-specific custom types (non-colliding with standard GGML).
         match v {
-            0 => Self::F32, 1 => Self::F16, 2 => Self::Q4_0, 3 => Self::Q4_1,
-            6 => Self::Q5_0, 7 => Self::Q5_1, 8 => Self::Q8_0, 9 => Self::Q8_1,
-            10 => Self::Q2K, 11 => Self::Q3K, 12 => Self::Q4K, 13 => Self::Q5K,
-            14 => Self::Q6K, 15 => Self::Q8K, 16 => Self::IQ2_XXS, 17 => Self::IQ2_XS,
-            18 => Self::IQ3_XXS, 19 => Self::IQ1_S, 20 => Self::Q1K, 21 => Self::Q4K_M,
-            22 => Self::Q5K_M, 24 => Self::I8, 25 => Self::I16,
-            26 => Self::I32, 27 => Self::I64, 28 => Self::F64, 29 => Self::Q2K_M,
-            30 => Self::BF16, 31 => Self::Q4_0_4_4, 32 => Self::Q4_0_4_8, 33 => Self::Q4_0_8_8,
-            34 => Self::TQ1_0, 35 => Self::TQ2_0, 36 => Self::IQ4NL_4_4, 37 => Self::IQ4NL_4_8,
-            38 => Self::IQ4NL_8_8, 39 => Self::MXFP4, 40 => Self::NVFP4, 41 => Self::Q1_0,
+            0 => Self::F32,
+            1 => Self::F16,
+            2 => Self::Q4_0,
+            3 => Self::Q4_1,
+            6 => Self::Q5_0,
+            7 => Self::Q5_1,
+            8 => Self::Q8_0,
+            9 => Self::Q8_1,
+            10 => Self::Q2_K,
+            11 => Self::Q3_K,
+            12 => Self::Q4_K,
+            13 => Self::Q5_K,
+            14 => Self::Q6_K,
+            15 => Self::Q8_K,
+            16 => Self::IQ2_XXS,
+            17 => Self::IQ2_XS,
+            18 => Self::IQ3_XXS,
+            19 => Self::IQ1_S,
+            20 => Self::IQ4_NL,
+            21 => Self::IQ3_S,
+            22 => Self::IQ2_S,
+            23 => Self::IQ4_XS,
+            24 => Self::I8,
+            25 => Self::I16,
+            26 => Self::I32,
+            27 => Self::I64,
+            28 => Self::F64,
+            29 => Self::IQ1_M,
+            30 => Self::BF16,
+            34 => Self::TQ1_0,
+            35 => Self::TQ2_0,
+            39 => Self::MXFP4,
+            40 => Self::NVFP4,
+            41 => Self::Q1_0,
             42 => Self::Q2_0,
-            // pesti custom: _S and _M variants (non-standard, no ggml.h equivalent)
-            43 => Self::Q6K_S, 44 => Self::Q8K_M,
-            45 => Self::Q2K_S, 46 => Self::Q3K_S, 47 => Self::Q4K_S,
-            48 => Self::Q5K_S,
             _ => Self::Unknown(v),
         }
     }
 
+    /// Inverse of [`from_u32`]. `Unknown(v)` round-trips to `v`.
     pub const fn to_u32(self) -> u32 {
-        // Must match from_u32() exactly. IDs 43+ are pesti custom types.
         match self {
             Self::F32 => 0,
             Self::F16 => 1,
@@ -405,80 +429,168 @@ impl GgufDtype {
             Self::Q5_1 => 7,
             Self::Q8_0 => 8,
             Self::Q8_1 => 9,
-            Self::Q2K => 10,
-            Self::Q3K => 11,
-            Self::Q4K => 12,
-            Self::Q5K => 13,
-            Self::Q6K => 14,
-            Self::Q8K => 15,
+            Self::Q2_K => 10,
+            Self::Q3_K => 11,
+            Self::Q4_K => 12,
+            Self::Q5_K => 13,
+            Self::Q6_K => 14,
+            Self::Q8_K => 15,
+            Self::IQ2_XXS => 16,
+            Self::IQ2_XS => 17,
+            Self::IQ3_XXS => 18,
+            Self::IQ1_S => 19,
+            Self::IQ4_NL => 20,
+            Self::IQ3_S => 21,
+            Self::IQ2_S => 22,
+            Self::IQ4_XS => 23,
             Self::I8 => 24,
             Self::I16 => 25,
             Self::I32 => 26,
             Self::I64 => 27,
             Self::F64 => 28,
+            Self::IQ1_M => 29,
             Self::BF16 => 30,
-            Self::Q1K => 20,
-            Self::Q4K_M => 21,
-            Self::Q5K_M => 22,
-            Self::Q2K_M => 29,
-            Self::IQ2_XXS => 16,
-            Self::IQ2_XS => 17,
-            Self::IQ3_XXS => 18,
-            Self::IQ1_S => 19,
-            Self::Q4_0_4_4 => 31,
-            Self::Q4_0_4_8 => 32,
-            Self::Q4_0_8_8 => 33,
             Self::TQ1_0 => 34,
             Self::TQ2_0 => 35,
-            Self::IQ4NL_4_4 => 36,
-            Self::IQ4NL_4_8 => 37,
-            Self::IQ4NL_8_8 => 38,
             Self::MXFP4 => 39,
             Self::NVFP4 => 40,
             Self::Q1_0 => 41,
             Self::Q2_0 => 42,
-            // pesti custom: _S and _M variants (non-standard, no ggml.h equivalent)
-            Self::Q6K_S => 43,
-            Self::Q8K_M => 44,
-            Self::Q2K_S => 45,
-            Self::Q3K_S => 46,
-            Self::Q4K_S => 47,
-            Self::Q5K_S => 48,
             Self::Unknown(v) => v,
         }
     }
 
+    /// True for every quantized dtype (all Q*/IQ* families).
     pub const fn is_quantized(self) -> bool {
-        matches!(self, Self::Q4_0 | Self::Q4_1 | Self::Q5_0 | Self::Q5_1 | Self::Q8_0 | Self::Q8_1
-            | Self::Q2K | Self::Q3K | Self::Q4K | Self::Q5K | Self::Q6K | Self::Q8K
-            | Self::Q1K | Self::Q4K_M | Self::Q5K_M | Self::Q6K_S | Self::Q8K_M
-            | Self::Q2K_S | Self::Q3K_S | Self::Q4K_S | Self::Q5K_S | Self::Q2K_M)
+        matches!(
+            self,
+            Self::Q4_0 | Self::Q4_1 | Self::Q5_0 | Self::Q5_1 | Self::Q8_0 | Self::Q8_1
+                | Self::Q2_K | Self::Q3_K | Self::Q4_K | Self::Q5_K | Self::Q6_K | Self::Q8_K
+                | Self::IQ2_XXS | Self::IQ2_XS | Self::IQ3_XXS | Self::IQ1_S | Self::IQ4_NL
+                | Self::IQ3_S | Self::IQ2_S | Self::IQ4_XS | Self::IQ1_M | Self::TQ1_0
+                | Self::TQ2_0 | Self::MXFP4 | Self::NVFP4 | Self::Q1_0 | Self::Q2_0
+        )
     }
 
-    pub const fn bytes_per_element(self) -> usize {
+    /// Number of elements per quantization block.
+    ///
+    /// Non-quantized types (F32, F16, BF16, I8, I16, I32, I64, F64) use a block
+    /// size of 1 (one scalar per block). Quantized types use the block size from
+    /// llama.cpp's `ggml_type_traits` table. `Unknown` types have no known block
+    /// size and return `None`.
+    pub const fn block_size(self) -> Option<usize> {
         match self {
-            Self::F32 => 4, Self::F16 => 2, Self::Q8_0 | Self::Q8_1 => 2,
-            Self::I8 => 1, Self::I16 => 2, Self::I32 => 4, Self::I64 => 8,
-            Self::F64 => 8, Self::BF16 => 2, _ => 0,
+            Self::F32 | Self::F16 | Self::BF16 | Self::I8 | Self::I16 | Self::I32
+            | Self::I64 | Self::F64 => Some(1),
+            Self::Q4_0 | Self::Q4_1 | Self::Q5_0 | Self::Q5_1 | Self::Q8_0 | Self::Q8_1
+            | Self::IQ4_NL | Self::MXFP4 | Self::Q1_0 => Some(32),
+            Self::NVFP4 => Some(64),
+            Self::Q2_0 => Some(64),
+            Self::Q2_K | Self::Q3_K | Self::Q4_K | Self::Q5_K | Self::Q6_K | Self::Q8_K
+            | Self::IQ2_XXS | Self::IQ2_XS | Self::IQ3_XXS | Self::IQ1_S | Self::IQ3_S
+            | Self::IQ2_S | Self::IQ4_XS | Self::IQ1_M | Self::TQ1_0 | Self::TQ2_0 => Some(256),
+            Self::Unknown(_) => None,
+        }
+    }
+
+    /// Bytes stored per quantization block.
+    ///
+    /// Non-quantized types store one scalar per block (bytes = scalar size).
+    /// Quantized types use the block byte size from llama.cpp's `ggml_type_traits`
+    /// table (verified against `sizeof(block_*)` in the ggml headers).
+    pub const fn bytes_per_block(self) -> Option<usize> {
+        match self {
+            Self::F32 => Some(4),
+            Self::F16 | Self::BF16 | Self::I16 => Some(2),
+            Self::I8 => Some(1),
+            Self::I32 => Some(4),
+            Self::F64 => Some(8),
+            Self::I64 => Some(8),
+            Self::Q4_0 => Some(18),
+            Self::Q4_1 => Some(20),
+            Self::Q5_0 => Some(22),
+            Self::Q5_1 => Some(24),
+            Self::Q8_0 => Some(34),
+            Self::Q8_1 => Some(36),
+            Self::Q2_K => Some(84),
+            Self::Q3_K => Some(110),
+            Self::Q4_K => Some(144),
+            Self::Q5_K => Some(176),
+            Self::Q6_K => Some(210),
+            Self::Q8_K => Some(292),
+            Self::IQ2_XXS => Some(66),
+            Self::IQ2_XS => Some(74),
+            Self::IQ3_XXS => Some(98),
+            Self::IQ1_S => Some(50),
+            Self::IQ4_NL => Some(18),
+            Self::IQ3_S => Some(110),
+            Self::IQ2_S => Some(82),
+            Self::IQ4_XS => Some(136),
+            Self::IQ1_M => Some(56),
+            Self::TQ1_0 => Some(54),
+            Self::TQ2_0 => Some(66),
+            Self::MXFP4 => Some(17),
+            Self::NVFP4 => Some(36),
+            Self::Q1_0 => Some(18),
+            Self::Q2_0 => Some(18),
+            Self::Unknown(_) => None,
+        }
+    }
+
+    /// Bytes per scalar element for non-quantized types.
+    ///
+    /// Returns `None` for quantized types (their storage is block-based, not
+    /// scalar-based — use [`block_size`] and [`bytes_per_block`] instead).
+    pub const fn bytes_per_element(self) -> Option<usize> {
+        match self {
+            Self::F32 => Some(4),
+            Self::F16 | Self::BF16 | Self::I16 => Some(2),
+            Self::I8 => Some(1),
+            Self::I32 => Some(4),
+            Self::F64 => Some(8),
+            Self::I64 => Some(8),
+            _ => None,
         }
     }
 
     pub const fn name(self) -> &'static str {
         match self {
-            Self::F32 => "F32", Self::F16 => "F16", Self::Q4_0 => "Q4_0", Self::Q4_1 => "Q4_1",
-            Self::Q5_0 => "Q5_0", Self::Q5_1 => "Q5_1", Self::Q8_0 => "Q8_0", Self::Q8_1 => "Q8_1",
-            Self::Q2K => "Q2K", Self::Q3K => "Q3K", Self::Q4K => "Q4K", Self::Q5K => "Q5K",
-            Self::Q6K => "Q6K", Self::Q8K => "Q8K", Self::I8 => "I8", Self::I16 => "I16",
-            Self::I32 => "I32", Self::I64 => "I64", Self::F64 => "F64", Self::BF16 => "BF16",
-            Self::Q1K => "Q1K", Self::Q4K_M => "Q4K_M", Self::Q5K_M => "Q5K_M",
-            Self::Q6K_S => "Q6K_S", Self::Q8K_M => "Q8K_M", Self::Q2K_S => "Q2K_S",
-            Self::Q3K_S => "Q3K_S", Self::Q4K_S => "Q4K_S", Self::Q5K_S => "Q5K_S",
-            Self::Q2K_M => "Q2K_M", Self::IQ2_XXS => "IQ2_XXS", Self::IQ2_XS => "IQ2_XS",
-            Self::IQ3_XXS => "IQ3_XXS", Self::IQ1_S => "IQ1_S", Self::Q4_0_4_4 => "Q4_0_4_4",
-            Self::Q4_0_4_8 => "Q4_0_4_8", Self::Q4_0_8_8 => "Q4_0_8_8", Self::TQ1_0 => "TQ1_0",
-            Self::TQ2_0 => "TQ2_0", Self::IQ4NL_4_4 => "IQ4NL_4_4", Self::IQ4NL_4_8 => "IQ4NL_4_8",
-            Self::IQ4NL_8_8 => "IQ4NL_8_8", Self::MXFP4 => "MXFP4", Self::NVFP4 => "NVFP4",
-            Self::Q1_0 => "Q1_0", Self::Q2_0 => "Q2_0", Self::Unknown(_) => "unknown",
+            Self::F32 => "F32",
+            Self::F16 => "F16",
+            Self::Q4_0 => "Q4_0",
+            Self::Q4_1 => "Q4_1",
+            Self::Q5_0 => "Q5_0",
+            Self::Q5_1 => "Q5_1",
+            Self::Q8_0 => "Q8_0",
+            Self::Q8_1 => "Q8_1",
+            Self::Q2_K => "Q2_K",
+            Self::Q3_K => "Q3_K",
+            Self::Q4_K => "Q4_K",
+            Self::Q5_K => "Q5_K",
+            Self::Q6_K => "Q6_K",
+            Self::Q8_K => "Q8_K",
+            Self::IQ2_XXS => "IQ2_XXS",
+            Self::IQ2_XS => "IQ2_XS",
+            Self::IQ3_XXS => "IQ3_XXS",
+            Self::IQ1_S => "IQ1_S",
+            Self::IQ4_NL => "IQ4_NL",
+            Self::IQ3_S => "IQ3_S",
+            Self::IQ2_S => "IQ2_S",
+            Self::IQ4_XS => "IQ4_XS",
+            Self::I8 => "I8",
+            Self::I16 => "I16",
+            Self::I32 => "I32",
+            Self::I64 => "I64",
+            Self::F64 => "F64",
+            Self::IQ1_M => "IQ1_M",
+            Self::BF16 => "BF16",
+            Self::TQ1_0 => "TQ1_0",
+            Self::TQ2_0 => "TQ2_0",
+            Self::MXFP4 => "MXFP4",
+            Self::NVFP4 => "NVFP4",
+            Self::Q1_0 => "Q1_0",
+            Self::Q2_0 => "Q2_0",
+            Self::Unknown(_) => "unknown",
         }
     }
 }
@@ -507,106 +619,34 @@ impl GgufTensorInfo {
     }
 
     /// Compute the actual stored byte size on disk with overflow checking.
+    ///
+    /// Mirrors ggml's `ggml_row_size`: `type_size * ne / blck_size`, which
+    /// requires the element count to be a multiple of the block size. Valid
+    /// GGUF quantized tensors always satisfy this (ggml asserts it), so a
+    /// non-aligned count is reported as an invalid tensor rather than guessed.
     pub fn stored_size(&self) -> Result<u64, GgufError> {
         let n = self.element_count();
-        
-        if n > u64::MAX / 8 {
-            return Err(GgufError::InvalidTensor(
-                "Tensor element count too large (would overflow)".to_string(),
-            ));
-        }
-
         let dtype = GgufDtype::from_u32(self.dtype);
-        match dtype {
-            GgufDtype::F32 => Ok(n.checked_mul(4).ok_or_else(|| GgufError::InvalidTensor("F32 size overflow".to_string()))?),
-            GgufDtype::F16 | GgufDtype::BF16 => Ok(n.checked_mul(2).ok_or_else(|| GgufError::InvalidTensor("F16/BF16 size overflow".to_string()))?),
-            GgufDtype::Q8_0 => {
-                // Q8_0: 32 elements/block, 1 byte/element + 2 bytes scale = 34 bytes/block
-                let full_blocks = n / 32;
-                let remaining = n % 32;
-                let base = full_blocks.checked_mul(34).ok_or_else(|| GgufError::InvalidTensor("Q8_0 size overflow".to_string()))?;
-                let tail = if remaining > 0 { 2 + remaining } else { 0 };
-                Ok(base.checked_add(tail).ok_or_else(|| GgufError::InvalidTensor("Q8_0 size overflow".to_string()))?)
+        let (block_elems, block_bytes) = match (dtype.block_size(), dtype.bytes_per_block()) {
+            (Some(be), Some(bb)) => (be, bb),
+            _ => {
+                return Err(GgufError::InvalidTensor(format!(
+                    "dtype {} ({}) has no known block size",
+                    self.dtype,
+                    dtype.name()
+                )))
             }
-            GgufDtype::Q8_1 => {
-                let full_blocks = n / 32;
-                let remaining = n % 32;
-                let base = full_blocks.checked_mul(36).ok_or_else(|| GgufError::InvalidTensor("Q8_1 size overflow".to_string()))?;
-                let tail = if remaining > 0 { 4 + remaining } else { 0 };
-                Ok(base.checked_add(tail).ok_or_else(|| GgufError::InvalidTensor("Q8_1 size overflow".to_string()))?)
-            }
-            GgufDtype::Q4_0 => {
-                let full_blocks = n / 32;
-                let remaining = n % 32;
-                let base = full_blocks.checked_mul(18).ok_or_else(|| GgufError::InvalidTensor("Q4_0 size overflow".to_string()))?;
-                let tail = if remaining > 0 { 2 + remaining.div_ceil(2) } else { 0 };
-                Ok(base.checked_add(tail).ok_or_else(|| GgufError::InvalidTensor("Q4_0 size overflow".to_string()))?)
-            }
-            GgufDtype::Q4_1 => {
-                let full_blocks = n / 32;
-                let remaining = n % 32;
-                let base = full_blocks.checked_mul(20).ok_or_else(|| GgufError::InvalidTensor("Q4_1 size overflow".to_string()))?;
-                let tail = if remaining > 0 { 4 + remaining.div_ceil(2) } else { 0 };
-                Ok(base.checked_add(tail).ok_or_else(|| GgufError::InvalidTensor("Q4_1 size overflow".to_string()))?)
-            }
-            GgufDtype::Q5_0 => Ok(n.checked_div(2).ok_or_else(|| GgufError::InvalidTensor("Q5_0 size overflow".to_string()))? + 32 + 16),
-            GgufDtype::Q5_1 => Ok(n.checked_div(2).ok_or_else(|| GgufError::InvalidTensor("Q5_1 size overflow".to_string()))? + 64 + 16),
-            GgufDtype::Q2K => {
-                let full_blocks = n / 256;
-                let remaining = n % 256;
-                let base = full_blocks.checked_mul(84).ok_or_else(|| GgufError::InvalidTensor("Q2K size overflow".to_string()))?;
-                let tail = if remaining > 0 { remaining / 4 + remaining / 16 + 4 } else { 0 };
-                Ok(base.checked_add(tail).ok_or_else(|| GgufError::InvalidTensor("Q2K size overflow".to_string()))?)
-            }
-            GgufDtype::Q3K => {
-                let full_blocks = n / 256;
-                let remaining = n % 256;
-                let base = full_blocks.checked_mul(110).ok_or_else(|| GgufError::InvalidTensor("Q3K size overflow".to_string()))?;
-                let tail = if remaining > 0 { remaining / 4 + remaining / 8 + 12 } else { 0 };
-                Ok(base.checked_add(tail).ok_or_else(|| GgufError::InvalidTensor("Q3K size overflow".to_string()))?)
-            }
-            GgufDtype::Q4K => {
-                let full_blocks = n / 256;
-                let remaining = n % 256;
-                Ok(full_blocks * 144 + if remaining > 0 { remaining / 2 + 16 } else { 0 })
-            }
-            GgufDtype::Q5K => {
-                let full_blocks = n / 256;
-                let remaining = n % 256;
-                Ok(full_blocks * 176 + if remaining > 0 { remaining / 2 + remaining / 8 + 16 } else { 0 })
-            }
-            GgufDtype::Q6K => {
-                let full_blocks = n / 256;
-                let remaining = n % 256;
-                Ok(full_blocks * 210 + if remaining > 0 { remaining / 16 + 3 * remaining / 4 + 2 } else { 0 })
-            }
-            GgufDtype::Q8K => {
-                let full_blocks = n / 256;
-                let remaining = n % 256;
-                Ok(full_blocks * 292 + if remaining > 0 { remaining + remaining / 16 * 2 + 4 } else { 0 })
-            }
-            GgufDtype::Q1K => {
-                let full_blocks = n / 256;
-                let remaining = n % 256;
-                Ok(full_blocks * 64 + if remaining > 0 { remaining / 8 + remaining / 64 + 96 } else { 0 })
-            }
-            GgufDtype::Q4K_M => Ok(n / 256 * 144 + if !n.is_multiple_of(256) { (n % 256) / 2 + 16 } else { 0 }),
-            GgufDtype::Q5K_M => Ok(n / 256 * 176 + if !n.is_multiple_of(256) { (n % 256) / 2 + (n % 256) / 8 + 16 } else { 0 }),
-            GgufDtype::Q8K_M => Ok(n / 256 * 292 + if !n.is_multiple_of(256) { (n % 256) + (n % 256) / 16 * 2 + 4 } else { 0 }),
-            GgufDtype::Q2K_S | GgufDtype::Q3K_S | GgufDtype::Q4K_S | GgufDtype::Q5K_S | GgufDtype::Q6K_S | GgufDtype::Q2K_M => Ok(n / 4 + 24),
-            GgufDtype::I8 => Ok(n),
-            GgufDtype::I16 => Ok(n.checked_mul(2).ok_or_else(|| GgufError::InvalidTensor("I16 size overflow".to_string()))?),
-            GgufDtype::I32 => Ok(n.checked_mul(4).ok_or_else(|| GgufError::InvalidTensor("I32 size overflow".to_string()))?),
-            GgufDtype::I64 => Ok(n.checked_mul(8).ok_or_else(|| GgufError::InvalidTensor("I64 size overflow".to_string()))?),
-            GgufDtype::F64 => Ok(n.checked_mul(8).ok_or_else(|| GgufError::InvalidTensor("F64 size overflow".to_string()))?),
-            GgufDtype::IQ2_XXS | GgufDtype::IQ2_XS | GgufDtype::IQ3_XXS | GgufDtype::IQ1_S => Ok(n / 4 + 256),
-            GgufDtype::Q4_0_4_4 | GgufDtype::Q4_0_4_8 | GgufDtype::Q4_0_8_8 => Ok(n / 2 + 16),
-            GgufDtype::TQ1_0 | GgufDtype::TQ2_0 => Ok(n / 3 + 128),
-            GgufDtype::IQ4NL_4_4 | GgufDtype::IQ4NL_4_8 | GgufDtype::IQ4NL_8_8 => Ok(n / 2 + 32),
-            GgufDtype::MXFP4 | GgufDtype::NVFP4 => Ok(n / 4 + 64),
-            GgufDtype::Q1_0 | GgufDtype::Q2_0 => Ok(n / 4 + 128),
-            GgufDtype::Unknown(_) => Ok(n.checked_mul(2).ok_or_else(|| GgufError::InvalidTensor("Unknown dtype size overflow".to_string()))?),
+        };
+        if n % block_elems as u64 != 0 {
+            return Err(GgufError::InvalidTensor(format!(
+                "tensor '{}' has {} elements, not a multiple of the {}-element block for dtype {} ({})",
+                self.name, n, block_elems, self.dtype, dtype.name()
+            )));
         }
+        let blocks = n / block_elems as u64;
+        blocks
+            .checked_mul(block_bytes as u64)
+            .ok_or_else(|| GgufError::InvalidTensor(format!("tensor '{}' stored size overflow", self.name)))
     }
 
     /// Compute serialized byte size using the wire format to determine name length width.
@@ -703,14 +743,19 @@ mod tests {
 
     #[test]
     fn test_dtype_roundtrip_all() {
-        // All valid dtype IDs: 0-42 (official) + 43-48 (pesti custom)
+        // Every dtype id that maps to a named variant in ggml.h.
+        // Removed ids (4, 5, 31, 32, 33, 36, 37, 38) resolve to Unknown and are
+        // not expected to round-trip to a named variant.
         for v in [
-            0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24,
-            25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45,
-            46, 47, 48,
+            0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+            24, 25, 26, 27, 28, 29, 30, 34, 35, 39, 40, 41, 42,
         ] {
             let dt = GgufDtype::from_u32(v);
             assert_eq!(dt.to_u32(), v, "roundtrip failed for {v}");
+        }
+        // Removed ids must resolve to Unknown.
+        for v in [4, 5, 31, 32, 33, 36, 37, 38] {
+            assert!(matches!(GgufDtype::from_u32(v), GgufDtype::Unknown(_)), "id {v} should be Unknown");
         }
     }
 
